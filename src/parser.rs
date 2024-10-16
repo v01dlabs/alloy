@@ -1,4 +1,4 @@
-//! Parser for the Alloy
+//! Parser for Alloy
 //!
 //! This module is responsible for taking a stream of tokens from the lexer
 //! and constructing an Abstract Syntax Tree (AST) that represents the structure
