@@ -22,6 +22,7 @@ pub enum Token {
     In,
     Async,
     Await,
+    Match,
 
     // Types
     Int,
@@ -52,6 +53,8 @@ pub enum Token {
     Or,
     Not,
     Pipeline,
+    Increment,
+    Decrement,
 
     // Delimiters
     LParen,
@@ -137,22 +140,20 @@ impl<'a> Lexer<'a> {
         let mut number = String::new();
         number.push(first_char);
         let mut is_float = false;
+        let mut has_exponent = false;
 
         while let Some(&c) = self.peek() {
-            if c.is_ascii_digit()
-                || (c == '.' && !is_float)
-                || (c.to_ascii_lowercase() == 'e' && !number.contains('e') && !number.contains('E'))
-            {
-                if c == '.' {
-                    is_float = true;
-                }
+            if c.is_ascii_digit() {
                 number.push(self.advance().unwrap());
-                if c.to_ascii_lowercase() == 'e' {
-                    // Handle optional sign in scientific notation
-                    if let Some(&next) = self.peek() {
-                        if next == '+' || next == '-' {
-                            number.push(self.advance().unwrap());
-                        }
+            } else if c == '.' && !is_float {
+                is_float = true;
+                number.push(self.advance().unwrap());
+            } else if (c == 'e' || c == 'E' || c == '^') && !has_exponent {
+                has_exponent = true;
+                number.push(self.advance().unwrap());
+                if let Some(&next) = self.peek() {
+                    if next == '+' || next == '-' {
+                        number.push(self.advance().unwrap());
                     }
                 }
             } else {
@@ -160,20 +161,16 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        if is_float {
+        if is_float || has_exponent {
             number
                 .parse::<f64>()
                 .map(Token::FloatLiteral)
                 .map_err(|e| format!("Invalid float literal: {}", e))
         } else {
-            // Try parsing as i64 first, if it fails, try as f64
-            match number.parse::<i64>() {
-                Ok(n) => Ok(Token::IntLiteral(n)),
-                Err(_) => number
-                    .parse::<f64>()
-                    .map(Token::FloatLiteral)
-                    .map_err(|e| format!("Invalid number literal: {}", e)),
-            }
+            number
+                .parse::<i64>()
+                .map(Token::IntLiteral)
+                .map_err(|e| format!("Invalid integer literal: {}", e))
         }
     }
 
@@ -210,6 +207,7 @@ impl<'a> Lexer<'a> {
             "bool" => Token::Bool,
             "true" => Token::BoolLiteral(true),
             "false" => Token::BoolLiteral(false),
+            "match" => Token::Match,
             _ => Token::Identifier(ident.to_string()),
         }
     }
@@ -222,33 +220,23 @@ impl<'a> Lexer<'a> {
             Some(c) => match c {
                 'a'..='z' | 'A'..='Z' | '_' => {
                     let identifier = self.read_identifier(c);
-                    match identifier.as_str() {
-                        "let" => Ok(Token::Let),
-                        "mut" => Ok(Token::Mut),
-                        "func" => Ok(Token::Func),
-                        "return" => Ok(Token::Return),
-                        "if" => Ok(Token::If),
-                        "else" => Ok(Token::Else),
-                        "while" => Ok(Token::While),
-                        "for" => Ok(Token::For),
-                        "in" => Ok(Token::In),
-                        "async" => Ok(Token::Async),
-                        "await" => Ok(Token::Await),
-                        "guard" => Ok(Token::Guard),
-                        "int" => Ok(Token::Int),
-                        "float" => Ok(Token::Float),
-                        "string" => Ok(Token::String),
-                        "bool" => Ok(Token::Bool),
-                        "true" => Ok(Token::BoolLiteral(true)),
-                        "false" => Ok(Token::BoolLiteral(false)),
-                        _ => Ok(Token::Identifier(identifier)),
-                    }
+                    Ok(Lexer::match_keyword(&identifier))
                 }
                 '0'..='9' => self.read_number(c),
                 '"' => self.read_string(),
-                '+' => Ok(Token::Plus),
+                '+' => {
+                    if self.peek() == Some(&'+') {
+                        self.advance();
+                        Ok(Token::Increment) // Handle `++`
+                    } else {
+                        Ok(Token::Plus)
+                    }
+                }
                 '-' => {
-                    if self.peek() == Some(&'>') {
+                    if self.peek() == Some(&'-') {
+                        self.advance();
+                        Ok(Token::Decrement) // Handle `--`
+                    } else if self.peek() == Some(&'>') {
                         self.advance();
                         Ok(Token::Arrow)
                     } else {
@@ -301,6 +289,9 @@ impl<'a> Lexer<'a> {
                     if self.peek() == Some(&'|') {
                         self.advance();
                         Ok(Token::Or)
+                    } else if self.peek() == Some(&'>') {
+                        self.advance();
+                        Ok(Token::Pipeline)
                     } else {
                         Err("Unexpected character: |".to_string())
                     }
@@ -314,6 +305,13 @@ impl<'a> Lexer<'a> {
                 ',' => Ok(Token::Comma),
                 ':' => Ok(Token::Colon),
                 ';' => Ok(Token::Semicolon),
+                '.' => {
+                    if self.peek().map_or(false, |c| c.is_ascii_digit()) {
+                        self.read_number(c)
+                    } else {
+                        Ok(Token::Dot)
+                    }
+                }
                 _ => Err(format!("Unexpected character: {}", c)),
             },
             None => Ok(Token::Eof),
@@ -321,19 +319,17 @@ impl<'a> Lexer<'a> {
     }
 
     /// Converts an input string into a vector of tokens.
-    pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
+    pub fn tokenize(input: &'a str) -> Result<Vec<Token>, String> {
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::new();
 
         loop {
             match lexer.next_token() {
-                Ok(token) => {
-                    if token == Token::Eof {
-                        tokens.push(token);
-                        break;
-                    }
-                    tokens.push(token);
+                Ok(Token::Eof) => {
+                    tokens.push(Token::Eof);
+                    break;
                 }
+                Ok(token) => tokens.push(token),
                 Err(e) => return Err(e),
             }
         }
@@ -484,6 +480,192 @@ mod tests {
                 Token::Eof
             ]
         );
+    }
+
+    #[test]
+    fn test_increment_operator() {
+        let input = "let x = 5; x++;";
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Let,
+                Token::Identifier("x".to_string()),
+                Token::Assign,
+                Token::IntLiteral(5),
+                Token::Semicolon,
+                Token::Identifier("x".to_string()),
+                Token::Increment,
+                Token::Semicolon,
+                Token::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_decrement_operator() {
+        let input = "let x = 5; x--;";
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Let,
+                Token::Identifier("x".to_string()),
+                Token::Assign,
+                Token::IntLiteral(5),
+                Token::Semicolon,
+                Token::Identifier("x".to_string()),
+                Token::Decrement,
+                Token::Semicolon,
+                Token::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_logical_operators() {
+        let input = "a && b || !c;";
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::And,
+                Token::Identifier("b".to_string()),
+                Token::Or,
+                Token::Not,
+                Token::Identifier("c".to_string()),
+                Token::Semicolon,
+                Token::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_comparison_operators() {
+        let input = "a == b != c < d <= e > f >= g;";
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::Eq,
+                Token::Identifier("b".to_string()),
+                Token::NotEq,
+                Token::Identifier("c".to_string()),
+                Token::Lt,
+                Token::Identifier("d".to_string()),
+                Token::LtEq,
+                Token::Identifier("e".to_string()),
+                Token::Gt,
+                Token::Identifier("f".to_string()),
+                Token::GtEq,
+                Token::Identifier("g".to_string()),
+                Token::Semicolon,
+                Token::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_arithmetic_operators() {
+        let input = "a + b - c * d / e;";
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::Plus,
+                Token::Identifier("b".to_string()),
+                Token::Minus,
+                Token::Identifier("c".to_string()),
+                Token::Multiply,
+                Token::Identifier("d".to_string()),
+                Token::Divide,
+                Token::Identifier("e".to_string()),
+                Token::Semicolon,
+                Token::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_pipeline_operator() {
+        let input = "a |> b;";
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::Pipeline,
+                Token::Identifier("b".to_string()),
+                Token::Semicolon,
+                Token::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_delimiters() {
+        let input = "(a, b) { [c] } : ; .";
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LParen,
+                Token::Identifier("a".to_string()),
+                Token::Comma,
+                Token::Identifier("b".to_string()),
+                Token::RParen,
+                Token::LBrace,
+                Token::LBracket,
+                Token::Identifier("c".to_string()),
+                Token::RBracket,
+                Token::RBrace,
+                Token::Colon,
+                Token::Semicolon,
+                Token::Dot,
+                Token::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_arrow_operator() {
+        let input = "func foo() -> int {}";
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Func,
+                Token::Identifier("foo".to_string()),
+                Token::LParen,
+                Token::RParen,
+                Token::Arrow,
+                Token::Int,
+                Token::LBrace,
+                Token::RBrace,
+                Token::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_unclosed_string_literal() {
+        let input = "let x = \"unclosed string;";
+        assert!(Lexer::<'_>::tokenize(input).is_err());
+    }
+
+    #[test]
+    fn test_invalid_character() {
+        let input = "let x = &invalid;";
+        assert!(Lexer::<'_>::tokenize(input).is_err());
+    }
+
+    #[test]
+    fn test_unexpected_character() {
+        let input = "let x = 3.14.15;";
+        assert!(Lexer::<'_>::tokenize(input).is_err());
     }
 
     #[test]
