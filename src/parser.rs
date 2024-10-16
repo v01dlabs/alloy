@@ -170,8 +170,6 @@ impl Parser {
     /// Parses the entire program.
     pub fn parse(&mut self) -> Result<AstNode, String> {
         let mut statements = Vec::new();
-        while self.peek().is_some() {
-            statements.push(self.parse_declaration()?);
         }
         Ok(AstNode::Program(statements))
     }
@@ -297,7 +295,7 @@ impl Parser {
         self.consume(&Token::LParen)?;
         let condition = self.parse_expression(Precedence::None)?;
         self.consume(&Token::RParen)?;
-        let then_branch = Box::new(self.parse_statement()?);
+        let then_branch = self.parse_statement()?;
         let else_branch = if self.match_token(&Token::Else) {
             Some(Box::new(self.parse_statement()?))
         } else {
@@ -305,7 +303,7 @@ impl Parser {
         };
         Ok(AstNode::IfStatement {
             condition: Box::new(condition),
-            then_branch,
+            then_branch: Box::new(then_branch),
             else_branch,
         })
     }
@@ -381,28 +379,25 @@ impl Parser {
     /// Parses a block of statements.
     fn parse_block(&mut self) -> Result<Vec<AstNode>, String> {
         let mut statements = Vec::new();
-        while !self.check(&Token::RBrace) && self.peek().is_some() {
-            statements.push(self.parse_statement()?);
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            statements.push(self.parse_declaration()?);
         }
         Ok(statements)
     }
 
     /// Parses an expression.
     fn parse_expression(&mut self, precedence: Precedence) -> Result<AstNode, String> {
-        let mut left = self.parse_prefix()?;
+        let mut expr = self.parse_prefix()?;
 
         while precedence < self.get_precedence() {
-            if self.is_at_end() {
-                break;
-            }
-            left = self.parse_infix(left)?;
+            expr = self.parse_infix(expr)?;
         }
 
         if self.check(&Token::LBrace) {
-            left = self.finish_trailing_closure(left)?;
+            expr = self.finish_trailing_closure(expr)?;
         }
 
-        Ok(left)
+        Ok(expr)
     }
 
     /// Parses a prefix expression.
@@ -458,7 +453,14 @@ impl Parser {
             Some(Token::Assign) => self.parse_assignment(left),
             Some(Token::LParen) => self.parse_call(left),
             Some(Token::LBrace) => self.finish_trailing_closure(left),
-            Some(Token::Pipeline) => self.parse_pipeline(left),
+            Some(Token::Pipeline) => {
+                self.advance();
+                let right = self.parse_expression(Precedence::Pipeline)?;
+                Ok(AstNode::PipelineOperation {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
+            }
             _ => Ok(left),
         }
     }
@@ -543,10 +545,12 @@ impl Parser {
 
     /// Finishes parsing a trailing closure.
     fn finish_trailing_closure(&mut self, callee: AstNode) -> Result<AstNode, String> {
-        let closure = self.parse_closure()?;
+        self.advance(); // Consume '{'
+        let body = self.parse_block()?;
+        self.consume(&Token::RBrace)?;
         Ok(AstNode::TrailingClosure {
             callee: Box::new(callee),
-            closure: Box::new(closure),
+            closure: Box::new(AstNode::Block(body)),
         })
     }
 
