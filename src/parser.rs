@@ -170,8 +170,6 @@ impl Parser {
     /// Parses the entire program.
     pub fn parse(&mut self) -> Result<AstNode, String> {
         let mut statements = Vec::new();
-        while self.peek().is_some() {
-            statements.push(self.parse_declaration()?);
         }
         Ok(AstNode::Program(statements))
     }
@@ -239,15 +237,15 @@ impl Parser {
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, String> {
         let base_type = self.parse_identifier()?;
         if self.match_token(&Token::LBracket) {
-            let mut generic_params = Vec::new();
+            let mut params = Vec::new();
             loop {
-                generic_params.push(self.parse_type_annotation()?);
+                params.push(self.parse_type_annotation()?);
                 if !self.match_token(&Token::Comma) {
                     break;
                 }
             }
             self.consume(&Token::RBracket)?;
-            Ok(TypeAnnotation::Generic(base_type, generic_params))
+            Ok(TypeAnnotation::Generic(base_type, params))
         } else {
             Ok(TypeAnnotation::Simple(base_type))
         }
@@ -297,7 +295,7 @@ impl Parser {
         self.consume(&Token::LParen)?;
         let condition = self.parse_expression(Precedence::None)?;
         self.consume(&Token::RParen)?;
-        let then_branch = Box::new(self.parse_statement()?);
+        let then_branch = self.parse_statement()?;
         let else_branch = if self.match_token(&Token::Else) {
             Some(Box::new(self.parse_statement()?))
         } else {
@@ -305,7 +303,7 @@ impl Parser {
         };
         Ok(AstNode::IfStatement {
             condition: Box::new(condition),
-            then_branch,
+            then_branch: Box::new(then_branch),
             else_branch,
         })
     }
@@ -359,10 +357,10 @@ impl Parser {
         self.advance(); // Consume 'guard'
         let condition = self.parse_expression(Precedence::None)?;
         self.consume(&Token::Else)?;
-        let body = Box::new(self.parse_statement()?);
+        let body = self.parse_statement()?;
         Ok(AstNode::GuardStatement {
             condition: Box::new(condition),
-            body,
+            body: Box::new(body),
         })
     }
 
@@ -381,24 +379,25 @@ impl Parser {
     /// Parses a block of statements.
     fn parse_block(&mut self) -> Result<Vec<AstNode>, String> {
         let mut statements = Vec::new();
-        while !self.check(&Token::RBrace) && self.peek().is_some() {
-            statements.push(self.parse_statement()?);
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            statements.push(self.parse_declaration()?);
         }
         Ok(statements)
     }
 
     /// Parses an expression.
     fn parse_expression(&mut self, precedence: Precedence) -> Result<AstNode, String> {
-        let mut left = self.parse_prefix()?;
+        let mut expr = self.parse_prefix()?;
 
         while precedence < self.get_precedence() {
-            if self.is_at_end() {
-                break;
-            }
-            left = self.parse_infix(left)?;
+            expr = self.parse_infix(expr)?;
         }
 
-        Ok(left)
+        if self.check(&Token::LBrace) {
+            expr = self.finish_trailing_closure(expr)?;
+        }
+
+        Ok(expr)
     }
 
     /// Parses a prefix expression.
@@ -410,7 +409,7 @@ impl Parser {
                 } else {
                     Ok(AstNode::Identifier(name))
                 }
-            },
+            }
             Some(Token::IntLiteral(value)) => Ok(AstNode::IntLiteral(value)),
             Some(Token::FloatLiteral(value)) => Ok(AstNode::FloatLiteral(value)),
             Some(Token::StringLiteral(value)) => Ok(AstNode::StringLiteral(value)),
@@ -442,15 +441,26 @@ impl Parser {
     fn parse_infix(&mut self, left: AstNode) -> Result<AstNode, String> {
         match self.peek() {
             Some(Token::Plus) | Some(Token::Minus) => self.parse_binary(left, Precedence::Term),
-            Some(Token::Multiply) | Some(Token::Divide) => self.parse_binary(left, Precedence::Factor),
+            Some(Token::Multiply) | Some(Token::Divide) => {
+                self.parse_binary(left, Precedence::Factor)
+            }
             Some(Token::Eq) | Some(Token::NotEq) => self.parse_binary(left, Precedence::Equality),
-            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => self.parse_binary(left, Precedence::Comparison),
+            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => {
+                self.parse_binary(left, Precedence::Comparison)
+            }
             Some(Token::And) => self.parse_binary(left, Precedence::And),
             Some(Token::Or) => self.parse_binary(left, Precedence::Or),
             Some(Token::Assign) => self.parse_assignment(left),
             Some(Token::LParen) => self.parse_call(left),
             Some(Token::LBrace) => self.finish_trailing_closure(left),
-            Some(Token::Pipeline) => self.parse_pipeline(left),
+            Some(Token::Pipeline) => {
+                self.advance();
+                let right = self.parse_expression(Precedence::Pipeline)?;
+                Ok(AstNode::PipelineOperation {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
+            }
             _ => Ok(left),
         }
     }
@@ -535,10 +545,12 @@ impl Parser {
 
     /// Finishes parsing a trailing closure.
     fn finish_trailing_closure(&mut self, callee: AstNode) -> Result<AstNode, String> {
-        let closure = self.parse_closure()?;
+        self.advance(); // Consume '{'
+        let body = self.parse_block()?;
+        self.consume(&Token::RBrace)?;
         Ok(AstNode::TrailingClosure {
             callee: Box::new(callee),
-            closure: Box::new(closure),
+            closure: Box::new(AstNode::Block(body)),
         })
     }
 
@@ -558,7 +570,9 @@ impl Parser {
             Some(Token::Or) => Precedence::Or,
             Some(Token::And) => Precedence::And,
             Some(Token::Eq) | Some(Token::NotEq) => Precedence::Equality,
-            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => Precedence::Comparison,
+            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => {
+                Precedence::Comparison
+            }
             Some(Token::Plus) | Some(Token::Minus) => Precedence::Term,
             Some(Token::Multiply) | Some(Token::Divide) => Precedence::Factor,
             Some(Token::LParen) => Precedence::Call,
@@ -576,7 +590,8 @@ impl Parser {
 
     /// Synchronizes the parser after an error.
     fn synchronize(&mut self) {
-        while let Some(token) = self.advance() {
+        self.advance();
+        while let Some(token) = self.peek() {
             if matches!(
                 token,
                 Token::Semicolon
@@ -589,6 +604,7 @@ impl Parser {
             ) {
                 return;
             }
+            self.advance();
         }
     }
 
