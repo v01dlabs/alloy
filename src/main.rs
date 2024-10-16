@@ -3,6 +3,7 @@
 mod lexer;
 mod parser;
 
+use crate::lexer::Lexer;
 use std::env;
 use std::fs;
 
@@ -16,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filename = &args[1];
     let source = fs::read_to_string(filename)?;
 
-    let tokens = lexer::tokenize(&source)?;
+    let tokens = Lexer::<'_>::tokenize(&source)?;
     let ast = parser::parse(tokens)?;
 
     println!("AST: {:?}", ast);

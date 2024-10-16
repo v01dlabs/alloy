@@ -319,27 +319,27 @@ impl<'a> Lexer<'a> {
             None => Ok(Token::Eof),
         }
     }
-}
 
-/// Converts an input string into a vector of tokens.
-pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
-    let mut lexer = Lexer::new(input);
-    let mut tokens = Vec::new();
+    /// Converts an input string into a vector of tokens.
+    pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
+        let mut lexer = Lexer::new(input);
+        let mut tokens = Vec::new();
 
-    loop {
-        match lexer.next_token() {
-            Ok(token) => {
-                if token == Token::Eof {
+        loop {
+            match lexer.next_token() {
+                Ok(token) => {
+                    if token == Token::Eof {
+                        tokens.push(token);
+                        break;
+                    }
                     tokens.push(token);
-                    break;
                 }
-                tokens.push(token);
+                Err(e) => return Err(e),
             }
-            Err(e) => return Err(e),
         }
-    }
 
-    Ok(tokens)
+        Ok(tokens)
+    }
 }
 
 #[cfg(test)]
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn test_simple_tokens() {
         let input = "let x = 5;";
-        let tokens = tokenize(input).unwrap();
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn test_complex_tokens() {
         let input = "func add(a: int, b: int) -> int { return a + b; }";
-        let tokens = tokenize(input).unwrap();
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn test_string_literal() {
         let input = r#"let greeting = "Hello, world!";"#;
-        let tokens = tokenize(input).unwrap();
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -415,7 +415,7 @@ mod tests {
     #[test]
     fn test_float_literal() {
         let input = "let pi = 3.141592653589793;";
-        let tokens = tokenize(input).unwrap();
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
         assert_eq!(tokens.len(), 6);
         assert_eq!(tokens[0], Token::Let);
         assert_eq!(tokens[1], Token::Identifier("pi".to_string()));
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn test_keywords_and_identifiers() {
         let input = "let mut while_loop = true;";
-        let tokens = tokenize(input).unwrap();
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn test_operators() {
         let input = "a + b - c * d / e == f != g < h > i <= j >= k && l || !m";
-        let tokens = tokenize(input).unwrap();
+        let tokens = Lexer::<'_>::tokenize(input).unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -489,12 +489,11 @@ mod tests {
     #[test]
     fn test_error_handling() {
         let input = "let x = 3.14.15;";
-        assert!(tokenize(input).is_err());
-
+        assert!(Lexer::<'_>::tokenize(input).is_err());
         let input = "let y = \"unclosed string;";
-        assert!(tokenize(input).is_err());
+        assert!(Lexer::<'_>::tokenize(input).is_err());
 
         let input = "let z = &invalid;";
-        assert!(tokenize(input).is_err());
+        assert!(Lexer::<'_>::tokenize(input).is_err());
     }
 }
