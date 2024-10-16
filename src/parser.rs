@@ -170,7 +170,7 @@ impl Parser {
     /// Parses the entire program.
     pub fn parse(&mut self) -> Result<AstNode, String> {
         let mut statements = Vec::new();
-        }
+
         Ok(AstNode::Program(statements))
     }
 
