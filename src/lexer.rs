@@ -11,17 +11,17 @@ use std::str::Chars;
 pub enum Token {
     // Keywords
     Let,
-    Mut,
     Func,
-    Return,
     If,
     Else,
     While,
     For,
+    Return,
+    Guard,
+    Mut,
     In,
     Async,
     Await,
-    Guard,
 
     // Types
     Int,
@@ -30,13 +30,11 @@ pub enum Token {
     Bool,
 
     // Literals
+    Identifier(String),
     IntLiteral(i64),
     FloatLiteral(f64),
     StringLiteral(String),
     BoolLiteral(bool),
-
-    // Identifiers
-    Identifier(String),
 
     // Operators
     Plus,
@@ -47,12 +45,13 @@ pub enum Token {
     Eq,
     NotEq,
     Lt,
-    Gt,
     LtEq,
+    Gt,
     GtEq,
     And,
     Or,
     Not,
+    Pipeline,
 
     // Delimiters
     LParen,
@@ -62,11 +61,12 @@ pub enum Token {
     LBracket,
     RBracket,
     Comma,
+    Dot,
     Colon,
-    Semicolon,
     Arrow,
+    Semicolon,
 
-    // End of file
+    // Special
     Eof,
 }
 
@@ -187,6 +187,31 @@ impl<'a> Lexer<'a> {
             string.push(c);
         }
         Err("Unterminated string literal".to_string())
+    }
+
+    // Update the `match_keyword` function in the lexer
+    fn match_keyword(ident: &str) -> Token {
+        match ident {
+            "let" => Token::Let,
+            "func" => Token::Func,
+            "if" => Token::If,
+            "else" => Token::Else,
+            "while" => Token::While,
+            "for" => Token::For,
+            "return" => Token::Return,
+            "guard" => Token::Guard,
+            "mut" => Token::Mut,
+            "in" => Token::In,
+            "async" => Token::Async,
+            "await" => Token::Await,
+            "int" => Token::Int,
+            "float" => Token::Float,
+            "string" => Token::String,
+            "bool" => Token::Bool,
+            "true" => Token::BoolLiteral(true),
+            "false" => Token::BoolLiteral(false),
+            _ => Token::Identifier(ident.to_string()),
+        }
     }
 
     /// Recognizes and returns the next token in the input.
