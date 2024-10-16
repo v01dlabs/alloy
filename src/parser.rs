@@ -239,15 +239,15 @@ impl Parser {
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, String> {
         let base_type = self.parse_identifier()?;
         if self.match_token(&Token::LBracket) {
-            let mut generic_params = Vec::new();
+            let mut params = Vec::new();
             loop {
-                generic_params.push(self.parse_type_annotation()?);
+                params.push(self.parse_type_annotation()?);
                 if !self.match_token(&Token::Comma) {
                     break;
                 }
             }
             self.consume(&Token::RBracket)?;
-            Ok(TypeAnnotation::Generic(base_type, generic_params))
+            Ok(TypeAnnotation::Generic(base_type, params))
         } else {
             Ok(TypeAnnotation::Simple(base_type))
         }
@@ -359,10 +359,10 @@ impl Parser {
         self.advance(); // Consume 'guard'
         let condition = self.parse_expression(Precedence::None)?;
         self.consume(&Token::Else)?;
-        let body = Box::new(self.parse_statement()?);
+        let body = self.parse_statement()?;
         Ok(AstNode::GuardStatement {
             condition: Box::new(condition),
-            body,
+            body: Box::new(body),
         })
     }
 
@@ -398,6 +398,10 @@ impl Parser {
             left = self.parse_infix(left)?;
         }
 
+        if self.check(&Token::LBrace) {
+            left = self.finish_trailing_closure(left)?;
+        }
+
         Ok(left)
     }
 
@@ -410,7 +414,7 @@ impl Parser {
                 } else {
                     Ok(AstNode::Identifier(name))
                 }
-            },
+            }
             Some(Token::IntLiteral(value)) => Ok(AstNode::IntLiteral(value)),
             Some(Token::FloatLiteral(value)) => Ok(AstNode::FloatLiteral(value)),
             Some(Token::StringLiteral(value)) => Ok(AstNode::StringLiteral(value)),
@@ -442,9 +446,13 @@ impl Parser {
     fn parse_infix(&mut self, left: AstNode) -> Result<AstNode, String> {
         match self.peek() {
             Some(Token::Plus) | Some(Token::Minus) => self.parse_binary(left, Precedence::Term),
-            Some(Token::Multiply) | Some(Token::Divide) => self.parse_binary(left, Precedence::Factor),
+            Some(Token::Multiply) | Some(Token::Divide) => {
+                self.parse_binary(left, Precedence::Factor)
+            }
             Some(Token::Eq) | Some(Token::NotEq) => self.parse_binary(left, Precedence::Equality),
-            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => self.parse_binary(left, Precedence::Comparison),
+            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => {
+                self.parse_binary(left, Precedence::Comparison)
+            }
             Some(Token::And) => self.parse_binary(left, Precedence::And),
             Some(Token::Or) => self.parse_binary(left, Precedence::Or),
             Some(Token::Assign) => self.parse_assignment(left),
@@ -558,7 +566,9 @@ impl Parser {
             Some(Token::Or) => Precedence::Or,
             Some(Token::And) => Precedence::And,
             Some(Token::Eq) | Some(Token::NotEq) => Precedence::Equality,
-            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => Precedence::Comparison,
+            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => {
+                Precedence::Comparison
+            }
             Some(Token::Plus) | Some(Token::Minus) => Precedence::Term,
             Some(Token::Multiply) | Some(Token::Divide) => Precedence::Factor,
             Some(Token::LParen) => Precedence::Call,
@@ -576,7 +586,8 @@ impl Parser {
 
     /// Synchronizes the parser after an error.
     fn synchronize(&mut self) {
-        while let Some(token) = self.advance() {
+        self.advance();
+        while let Some(token) = self.peek() {
             if matches!(
                 token,
                 Token::Semicolon
@@ -589,6 +600,7 @@ impl Parser {
             ) {
                 return;
             }
+            self.advance();
         }
     }
 
