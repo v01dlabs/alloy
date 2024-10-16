@@ -3,8 +3,8 @@
 //! The lexer is responsible for converting raw source code into
 //! a series of tokens that can be processed by the parser.
 
-use std::str::Chars;
 use std::iter::Peekable;
+use std::str::Chars;
 
 /// Represents a token in Alloy.
 #[derive(Debug, PartialEq, Clone)]
@@ -139,7 +139,10 @@ impl<'a> Lexer<'a> {
         let mut is_float = false;
 
         while let Some(&c) = self.peek() {
-            if c.is_ascii_digit() || (c == '.' && !is_float) || (c.to_ascii_lowercase() == 'e' && !number.contains('e') && !number.contains('E')) {
+            if c.is_ascii_digit()
+                || (c == '.' && !is_float)
+                || (c.to_ascii_lowercase() == 'e' && !number.contains('e') && !number.contains('E'))
+            {
                 if c == '.' {
                     is_float = true;
                 }
@@ -158,16 +161,18 @@ impl<'a> Lexer<'a> {
         }
 
         if is_float {
-            number.parse::<f64>()
+            number
+                .parse::<f64>()
                 .map(Token::FloatLiteral)
                 .map_err(|e| format!("Invalid float literal: {}", e))
         } else {
             // Try parsing as i64 first, if it fails, try as f64
             match number.parse::<i64>() {
                 Ok(n) => Ok(Token::IntLiteral(n)),
-                Err(_) => number.parse::<f64>()
+                Err(_) => number
+                    .parse::<f64>()
                     .map(Token::FloatLiteral)
-                    .map_err(|e| format!("Invalid number literal: {}", e))
+                    .map_err(|e| format!("Invalid number literal: {}", e)),
             }
         }
     }
@@ -320,57 +325,66 @@ mod tests {
     fn test_simple_tokens() {
         let input = "let x = 5;";
         let tokens = tokenize(input).unwrap();
-        assert_eq!(tokens, vec![
-            Token::Let,
-            Token::Identifier("x".to_string()),
-            Token::Assign,
-            Token::IntLiteral(5),
-            Token::Semicolon,
-            Token::Eof
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Let,
+                Token::Identifier("x".to_string()),
+                Token::Assign,
+                Token::IntLiteral(5),
+                Token::Semicolon,
+                Token::Eof
+            ]
+        );
     }
 
     #[test]
     fn test_complex_tokens() {
         let input = "func add(a: int, b: int) -> int { return a + b; }";
         let tokens = tokenize(input).unwrap();
-        assert_eq!(tokens, vec![
-            Token::Func,
-            Token::Identifier("add".to_string()),
-            Token::LParen,
-            Token::Identifier("a".to_string()),
-            Token::Colon,
-            Token::Int,
-            Token::Comma,
-            Token::Identifier("b".to_string()),
-            Token::Colon,
-            Token::Int,
-            Token::RParen,
-            Token::Arrow,
-            Token::Int,
-            Token::LBrace,
-            Token::Return,
-            Token::Identifier("a".to_string()),
-            Token::Plus,
-            Token::Identifier("b".to_string()),
-            Token::Semicolon,
-            Token::RBrace,
-            Token::Eof
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Func,
+                Token::Identifier("add".to_string()),
+                Token::LParen,
+                Token::Identifier("a".to_string()),
+                Token::Colon,
+                Token::Int,
+                Token::Comma,
+                Token::Identifier("b".to_string()),
+                Token::Colon,
+                Token::Int,
+                Token::RParen,
+                Token::Arrow,
+                Token::Int,
+                Token::LBrace,
+                Token::Return,
+                Token::Identifier("a".to_string()),
+                Token::Plus,
+                Token::Identifier("b".to_string()),
+                Token::Semicolon,
+                Token::RBrace,
+                Token::Eof
+            ]
+        );
     }
 
     #[test]
     fn test_string_literal() {
         let input = r#"let greeting = "Hello, world!";"#;
         let tokens = tokenize(input).unwrap();
-        assert_eq!(tokens, vec![
-            Token::Let,
-            Token::Identifier("greeting".to_string()),
-            Token::Assign,
-            Token::StringLiteral("Hello, world!".to_string()),
-            Token::Semicolon,
-            Token::Eof
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Let,
+                Token::Identifier("greeting".to_string()),
+                Token::Assign,
+                Token::StringLiteral("Hello, world!".to_string()),
+                Token::Semicolon,
+                Token::Eof
+            ]
+        );
     }
 
     #[test]
@@ -384,7 +398,7 @@ mod tests {
         match &tokens[3] {
             Token::FloatLiteral(value) => {
                 assert!((value - std::f64::consts::PI).abs() < f64::EPSILON);
-            },
+            }
             _ => panic!("Expected FloatLiteral, got {:?}", tokens[3]),
         }
         assert_eq!(tokens[4], Token::Semicolon);
@@ -395,50 +409,56 @@ mod tests {
     fn test_keywords_and_identifiers() {
         let input = "let mut while_loop = true;";
         let tokens = tokenize(input).unwrap();
-        assert_eq!(tokens, vec![
-            Token::Let,
-            Token::Mut,
-            Token::Identifier("while_loop".to_string()),
-            Token::Assign,
-            Token::BoolLiteral(true),
-            Token::Semicolon,
-            Token::Eof
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Let,
+                Token::Mut,
+                Token::Identifier("while_loop".to_string()),
+                Token::Assign,
+                Token::BoolLiteral(true),
+                Token::Semicolon,
+                Token::Eof
+            ]
+        );
     }
 
     #[test]
     fn test_operators() {
         let input = "a + b - c * d / e == f != g < h > i <= j >= k && l || !m";
         let tokens = tokenize(input).unwrap();
-        assert_eq!(tokens, vec![
-            Token::Identifier("a".to_string()),
-            Token::Plus,
-            Token::Identifier("b".to_string()),
-            Token::Minus,
-            Token::Identifier("c".to_string()),
-            Token::Multiply,
-            Token::Identifier("d".to_string()),
-            Token::Divide,
-            Token::Identifier("e".to_string()),
-            Token::Eq,
-            Token::Identifier("f".to_string()),
-            Token::NotEq,
-            Token::Identifier("g".to_string()),
-            Token::Lt,
-            Token::Identifier("h".to_string()),
-            Token::Gt,
-            Token::Identifier("i".to_string()),
-            Token::LtEq,
-            Token::Identifier("j".to_string()),
-            Token::GtEq,
-            Token::Identifier("k".to_string()),
-            Token::And,
-            Token::Identifier("l".to_string()),
-            Token::Or,
-            Token::Not,
-            Token::Identifier("m".to_string()),
-            Token::Eof
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::Plus,
+                Token::Identifier("b".to_string()),
+                Token::Minus,
+                Token::Identifier("c".to_string()),
+                Token::Multiply,
+                Token::Identifier("d".to_string()),
+                Token::Divide,
+                Token::Identifier("e".to_string()),
+                Token::Eq,
+                Token::Identifier("f".to_string()),
+                Token::NotEq,
+                Token::Identifier("g".to_string()),
+                Token::Lt,
+                Token::Identifier("h".to_string()),
+                Token::Gt,
+                Token::Identifier("i".to_string()),
+                Token::LtEq,
+                Token::Identifier("j".to_string()),
+                Token::GtEq,
+                Token::Identifier("k".to_string()),
+                Token::And,
+                Token::Identifier("l".to_string()),
+                Token::Or,
+                Token::Not,
+                Token::Identifier("m".to_string()),
+                Token::Eof
+            ]
+        );
     }
 
     #[test]
