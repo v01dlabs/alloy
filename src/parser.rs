@@ -8,19 +8,36 @@ use crate::lexer::Token;
 use std::collections::VecDeque;
 
 /// Represents the precedence levels for operators.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd)]
 enum Precedence {
     None,
     Assignment, // =
+    Pipeline,   // |>
+    Or,         // ||
+    And,        // &&
     Equality,   // == !=
     Comparison, // < > <= >=
     Term,       // + -
     Factor,     // * /
-    And,        // &&
-    Or,         // ||
     Unary,      // ! -
     Call,       // . ()
-    Pipeline,   // |>
+    Primary,
+impl Precedence {
+    fn from_token(token: &Token) -> Precedence {
+        match token {
+            Token::Eq | Token::NotEq => Precedence::Equality,
+            Token::Lt | Token::LtEq | Token::Gt | Token::GtEq => Precedence::Comparison,
+            Token::Plus | Token::Minus => Precedence::Term,
+            Token::Multiply | Token::Divide => Precedence::Factor,
+            Token::Not => Precedence::Unary,
+            Token::And => Precedence::And,
+            Token::Or => Precedence::Or,
+            Token::Assign => Precedence::Assignment,
+            Token::Pipeline => Precedence::Pipeline,
+            Token::LParen => Precedence::Call,
+            _ => Precedence::None,
+        }
+    }
 }
 
 /// Represents a node in the Abstract Syntax Tree (AST).
