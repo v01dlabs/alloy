@@ -1,8 +1,10 @@
-mod lexer;
-//mod parser;
+#![feature(box_patterns)]
 
-//use std::fs;
+mod lexer;
+mod parser;
+
 use std::env;
+use std::fs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
@@ -11,13 +13,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    //let filename = &args[1];
-    //let source = fs::read_to_string(filename)?;
+    let filename = &args[1];
+    let source = fs::read_to_string(filename)?;
 
-    //let tokens = lexer::tokenize(&source)?;
-    //let ast = parser::parse(tokens)?;
+    let tokens = lexer::tokenize(&source)?;
+    let ast = parser::parse(tokens)?;
 
-    //println!("AST: {:?}", ast);
+    println!("AST: {:?}", ast);
 
     // TODO: Implement type checking and transpilation
     // type_checker::check(&ast)?;
