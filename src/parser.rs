@@ -5,24 +5,47 @@
 //! of an Alloy program.
 
 use crate::lexer::Token;
-use std::iter::Peekable;
-use std::vec::IntoIter;
+use std::collections::VecDeque;
 
-/// Represents a node in the Abstract Syntax Tree.
-#[derive(Debug, PartialEq, Clone)]
+/// Represents the precedence levels for operators.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+enum Precedence {
+    None,
+    Assignment, // =
+    Equality,   // == !=
+    Comparison, // < > <= >=
+    Term,       // + -
+    Factor,     // * /
+    And,        // &&
+    Or,         // ||
+    Unary,      // ! -
+    Call,       // . ()
+    Pipeline,   // |>
+}
+
+/// Represents a node in the Abstract Syntax Tree (AST).
+#[derive(Debug, Clone)]
 pub enum AstNode {
     Program(Vec<AstNode>),
     FunctionDeclaration {
         name: String,
         params: Vec<(String, TypeAnnotation)>,
         return_type: Option<TypeAnnotation>,
-        body: Box<AstNode>,
+        body: Vec<AstNode>,
     },
     VariableDeclaration {
         name: String,
-        is_mutable: bool,
         type_annotation: Option<TypeAnnotation>,
         initializer: Option<Box<AstNode>>,
+    },
+    IfStatement {
+        condition: Box<AstNode>,
+        then_branch: Box<AstNode>,
+        else_branch: Option<Box<AstNode>>,
+    },
+    WhileLoop {
+        condition: Box<AstNode>,
+        body: Box<AstNode>,
     },
     ForLoop {
         initializer: Option<Box<AstNode>>,
@@ -30,17 +53,12 @@ pub enum AstNode {
         increment: Option<Box<AstNode>>,
         body: Box<AstNode>,
     },
-    WhileLoop {
+    GuardStatement {
         condition: Box<AstNode>,
         body: Box<AstNode>,
     },
-    Block(Vec<AstNode>),
     ReturnStatement(Option<Box<AstNode>>),
-    IfStatement {
-        condition: Box<AstNode>,
-        then_branch: Box<AstNode>,
-        else_branch: Option<Box<AstNode>>,
-    },
+    Block(Vec<AstNode>),
     BinaryOperation {
         left: Box<AstNode>,
         operator: BinaryOperator,
@@ -51,47 +69,52 @@ pub enum AstNode {
         operand: Box<AstNode>,
     },
     FunctionCall {
-        function: Box<AstNode>,
+        callee: Box<AstNode>,
         arguments: Vec<AstNode>,
     },
-    ArrayLiteral(Vec<AstNode>),
+    TrailingClosure {
+        callee: Box<AstNode>,
+        closure: Box<AstNode>,
+    },
+    PipelineOperation {
+        left: Box<AstNode>,
+        right: Box<AstNode>,
+    },
     Identifier(String),
-    IntegerLiteral(i64),
+    IntLiteral(i64),
     FloatLiteral(f64),
     StringLiteral(String),
-    BooleanLiteral(bool),
+    BoolLiteral(bool),
 }
 
 /// Represents the type annotations in Alloy.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
-    Int,
-    Float,
-    String,
-    Bool,
-    Array(Box<TypeAnnotation>),
-    Custom(String),
+    Simple(String),
+    Generic(String, Vec<TypeAnnotation>),
 }
 
 /// Represents binary operators in Alloy.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOperator {
     Add,
     Subtract,
     Multiply,
     Divide,
-    Equals,
-    NotEquals,
+    Equal,
+    NotEqual,
     LessThan,
-    GreaterThan,
     LessThanOrEqual,
+    GreaterThan,
     GreaterThanOrEqual,
     And,
     Or,
+    Assign,
+    Pipeline,
 }
 
 /// Represents unary operators in Alloy.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOperator {
     Negate,
     Not,
@@ -99,85 +122,93 @@ pub enum UnaryOperator {
 
 /// The Parser struct holds the state during parsing.
 pub struct Parser {
-    tokens: Peekable<IntoIter<Token>>,
+    tokens: VecDeque<Token>,
 }
 
 impl Parser {
     /// Creates a new Parser instance.
     pub fn new(tokens: Vec<Token>) -> Self {
         Parser {
-            tokens: tokens.into_iter().peekable(),
+            tokens: tokens.into(),
+        }
+    }
+
+    /// Peeks at the next token without consuming it.
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.front()
+    }
+
+    /// Advances to the next token, consuming the current one.
+    fn advance(&mut self) -> Option<Token> {
+        self.tokens.pop_front()
+    }
+
+    /// Checks if the next token matches the expected token.
+    fn check(&self, expected: &Token) -> bool {
+        self.peek() == Some(expected)
+    }
+
+    /// Consumes the next token if it matches the expected token.
+    fn match_token(&mut self, expected: &Token) -> bool {
+        if self.check(expected) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Consumes the expected token or returns an error.
+    fn consume(&mut self, expected: &Token) -> Result<(), String> {
+        if self.match_token(expected) {
+            Ok(())
+        } else {
+            Err(format!("Expected {:?}, found {:?}", expected, self.peek()))
         }
     }
 
     /// Parses the entire program.
-    pub fn parse_program(&mut self) -> Result<AstNode, String> {
+    pub fn parse(&mut self) -> Result<AstNode, String> {
         let mut statements = Vec::new();
-        while self.tokens.peek().is_some() {
-            statements.push(self.parse_statement()?);
+        while self.peek().is_some() {
+            statements.push(self.parse_declaration()?);
         }
         Ok(AstNode::Program(statements))
     }
 
-    /// Parses a single statement.
-    fn parse_statement(&mut self) -> Result<AstNode, String> {
-        match self.tokens.peek() {
-            Some(Token::Let) => self.parse_variable_declaration(),
-            Some(Token::Func) => self.parse_function_declaration(),
-            Some(Token::Return) => self.parse_return_statement(),
-            Some(Token::If) => self.parse_if_statement(),
-            Some(Token::While) => self.parse_while_loop(),
-            Some(Token::For) => self.parse_for_loop(),
-            Some(Token::LBracket) => self.parse_array_literal(),
-            _ => self.parse_expression_statement(),
+    /// Parses a declaration (function or variable).
+    fn parse_declaration(&mut self) -> Result<AstNode, String> {
+        let result = if self.match_token(&Token::Func) {
+            self.parse_function_declaration()
+        } else if self.match_token(&Token::Let) {
+            self.parse_variable_declaration()
+        } else {
+            self.parse_statement()
+        };
+
+        if result.is_err() {
+            self.synchronize();
         }
-    }
 
-    /// Parses a variable declaration.
-    fn parse_variable_declaration(&mut self) -> Result<AstNode, String> {
-        self.consume(Token::Let)?;
-        let is_mutable = self.match_token(Token::Mut);
-        let name = self.consume_identifier()?;
-
-        let type_annotation = if self.match_token(Token::Colon) {
-            Some(self.parse_type()?)
-        } else {
-            None
-        };
-
-        let initializer = if self.match_token(Token::Assign) {
-            Some(Box::new(self.parse_expression()?))
-        } else {
-            None
-        };
-
-        self.consume(Token::Semicolon)?;
-
-        Ok(AstNode::VariableDeclaration {
-            name,
-            is_mutable,
-            type_annotation,
-            initializer,
-        })
+        result
     }
 
     /// Parses a function declaration.
     fn parse_function_declaration(&mut self) -> Result<AstNode, String> {
-        self.consume(Token::Func)?;
-        let name = self.consume_identifier()?;
-        self.consume(Token::LParen)?;
-
+        let name = self.parse_identifier()?;
+        self.consume(&Token::LParen)?;
         let params = self.parse_parameters()?;
+        self.consume(&Token::RParen)?;
 
-        self.consume(Token::RParen)?;
-
-        let return_type = if self.match_token(Token::Arrow) {
-            Some(self.parse_type()?)
+        let return_type = if self.match_token(&Token::Arrow) {
+            Some(self.parse_type_annotation()?)
         } else {
             None
         };
 
-        let body = Box::new(self.parse_block()?);
+        self.consume(&Token::LBrace)?;
+        let body = self.parse_block()?;
+        self.consume(&Token::RBrace)?;
 
         Ok(AstNode::FunctionDeclaration {
             name,
@@ -192,11 +223,11 @@ impl Parser {
         let mut params = Vec::new();
         if !self.check(&Token::RParen) {
             loop {
-                let name = self.consume_identifier()?;
-                self.consume(Token::Colon)?;
-                let type_annotation = self.parse_type()?;
+                let name = self.parse_identifier()?;
+                self.consume(&Token::Colon)?;
+                let type_annotation = self.parse_type_annotation()?;
                 params.push((name, type_annotation));
-                if !self.match_token(Token::Comma) {
+                if !self.match_token(&Token::Comma) {
                     break;
                 }
             }
@@ -205,102 +236,116 @@ impl Parser {
     }
 
     /// Parses a type annotation.
-    fn parse_type(&mut self) -> Result<TypeAnnotation, String> {
-        if self.match_token(Token::LBracket) {
-            let inner_type = Box::new(self.parse_type()?);
-            self.consume(Token::RBracket)?;
-            Ok(TypeAnnotation::Array(inner_type))
+    fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, String> {
+        let base_type = self.parse_identifier()?;
+        if self.match_token(&Token::LBracket) {
+            let mut generic_params = Vec::new();
+            loop {
+                generic_params.push(self.parse_type_annotation()?);
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
+            }
+            self.consume(&Token::RBracket)?;
+            Ok(TypeAnnotation::Generic(base_type, generic_params))
         } else {
-            match self.tokens.next() {
-                Some(Token::Int) => Ok(TypeAnnotation::Int),
-                Some(Token::Float) => Ok(TypeAnnotation::Float),
-                Some(Token::String) => Ok(TypeAnnotation::String),
-                Some(Token::Bool) => Ok(TypeAnnotation::Bool),
-                Some(Token::Identifier(name)) => Ok(TypeAnnotation::Custom(name)),
-                _ => Err("Expected type annotation".to_string()),
+            Ok(TypeAnnotation::Simple(base_type))
+        }
+    }
+
+    /// Parses a variable declaration.
+    fn parse_variable_declaration(&mut self) -> Result<AstNode, String> {
+        let name = self.parse_identifier()?;
+        let type_annotation = if self.match_token(&Token::Colon) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+        let initializer = if self.match_token(&Token::Assign) {
+            Some(Box::new(self.parse_expression(Precedence::None)?))
+        } else {
+            None
+        };
+        self.consume(&Token::Semicolon)?;
+        Ok(AstNode::VariableDeclaration {
+            name,
+            type_annotation,
+            initializer,
+        })
+    }
+
+    /// Parses a statement.
+    fn parse_statement(&mut self) -> Result<AstNode, String> {
+        match self.peek() {
+            Some(Token::If) => self.parse_if_statement(),
+            Some(Token::While) => self.parse_while_statement(),
+            Some(Token::For) => self.parse_for_statement(),
+            Some(Token::Guard) => self.parse_guard_statement(),
+            Some(Token::Return) => self.parse_return_statement(),
+            Some(Token::LBrace) => self.parse_block().map(AstNode::Block),
+            _ => {
+                let expr = self.parse_expression(Precedence::None)?;
+                self.consume(&Token::Semicolon)?;
+                Ok(expr)
             }
         }
     }
 
-    /// Parses a block of statements.
-    fn parse_block(&mut self) -> Result<AstNode, String> {
-        self.consume(Token::LBrace)?;
-        let mut statements = Vec::new();
-        while !self.check(&Token::RBrace) {
-            statements.push(self.parse_statement()?);
-        }
-        self.consume(Token::RBrace)?;
-        Ok(AstNode::Block(statements))
-    }
-
-    /// Parses a return statement.
-    fn parse_return_statement(&mut self) -> Result<AstNode, String> {
-        self.consume(Token::Return)?;
-        let value = if !self.check(&Token::Semicolon) {
-            Some(Box::new(self.parse_expression()?))
-        } else {
-            None
-        };
-        self.consume(Token::Semicolon)?;
-        Ok(AstNode::ReturnStatement(value))
-    }
-
     /// Parses an if statement.
     fn parse_if_statement(&mut self) -> Result<AstNode, String> {
-        self.consume(Token::If)?;
-        self.consume(Token::LParen)?;
-        let condition = Box::new(self.parse_expression()?);
-        self.consume(Token::RParen)?;
-        let then_branch = Box::new(self.parse_block()?);
-        let else_branch = if self.match_token(Token::Else) {
-            Some(Box::new(if self.check(&Token::If) {
-                self.parse_if_statement()?
-            } else {
-                self.parse_block()?
-            }))
+        self.advance(); // Consume 'if'
+        self.consume(&Token::LParen)?;
+        let condition = self.parse_expression(Precedence::None)?;
+        self.consume(&Token::RParen)?;
+        let then_branch = Box::new(self.parse_statement()?);
+        let else_branch = if self.match_token(&Token::Else) {
+            Some(Box::new(self.parse_statement()?))
         } else {
             None
         };
         Ok(AstNode::IfStatement {
-            condition,
+            condition: Box::new(condition),
             then_branch,
             else_branch,
         })
     }
 
-    /// Parses a while loop.
-    fn parse_while_loop(&mut self) -> Result<AstNode, String> {
-        self.consume(Token::While)?;
-        self.consume(Token::LParen)?;
-        let condition = Box::new(self.parse_expression()?);
-        self.consume(Token::RParen)?;
-        let body = Box::new(self.parse_block()?);
-        Ok(AstNode::WhileLoop { condition, body })
+    /// Parses a while statement.
+    fn parse_while_statement(&mut self) -> Result<AstNode, String> {
+        self.advance(); // Consume 'while'
+        self.consume(&Token::LParen)?;
+        let condition = self.parse_expression(Precedence::None)?;
+        self.consume(&Token::RParen)?;
+        let body = Box::new(self.parse_statement()?);
+        Ok(AstNode::WhileLoop {
+            condition: Box::new(condition),
+            body,
+        })
     }
 
-    /// Parses a for loop.
-    fn parse_for_loop(&mut self) -> Result<AstNode, String> {
-        self.consume(Token::For)?;
-        self.consume(Token::LParen)?;
+    /// Parses a for statement.
+    fn parse_for_statement(&mut self) -> Result<AstNode, String> {
+        self.advance(); // Consume 'for'
+        self.consume(&Token::LParen)?;
         let initializer = if !self.check(&Token::Semicolon) {
-            Some(Box::new(self.parse_statement()?))
+            Some(Box::new(self.parse_variable_declaration()?))
         } else {
-            self.consume(Token::Semicolon)?;
+            self.advance(); // Consume semicolon
             None
         };
         let condition = if !self.check(&Token::Semicolon) {
-            Some(Box::new(self.parse_expression()?))
+            Some(Box::new(self.parse_expression(Precedence::None)?))
         } else {
             None
         };
-        self.consume(Token::Semicolon)?;
+        self.consume(&Token::Semicolon)?;
         let increment = if !self.check(&Token::RParen) {
-            Some(Box::new(self.parse_expression()?))
+            Some(Box::new(self.parse_expression(Precedence::None)?))
         } else {
             None
         };
-        self.consume(Token::RParen)?;
-        let body = Box::new(self.parse_block()?);
+        self.consume(&Token::RParen)?;
+        let body = Box::new(self.parse_statement()?);
         Ok(AstNode::ForLoop {
             initializer,
             condition,
@@ -309,407 +354,730 @@ impl Parser {
         })
     }
 
-    /// Parses an array literal.
-    fn parse_array_literal(&mut self) -> Result<AstNode, String> {
-        let mut elements = Vec::new();
-        if !self.check(&Token::RBracket) {
-            loop {
-                elements.push(self.parse_expression()?);
-                if !self.match_token(Token::Comma) {
-                    break;
-                }
-            }
-        }
-        self.consume(Token::RBracket)?;
-        Ok(AstNode::ArrayLiteral(elements))
+    /// Parses a guard statement.
+    fn parse_guard_statement(&mut self) -> Result<AstNode, String> {
+        self.advance(); // Consume 'guard'
+        let condition = self.parse_expression(Precedence::None)?;
+        self.consume(&Token::Else)?;
+        let body = Box::new(self.parse_statement()?);
+        Ok(AstNode::GuardStatement {
+            condition: Box::new(condition),
+            body,
+        })
     }
 
-    /// Parses an expression statement.
-    fn parse_expression_statement(&mut self) -> Result<AstNode, String> {
-        let expr = self.parse_expression()?;
-        self.consume(Token::Semicolon)?;
-        Ok(expr)
+    /// Parses a return statement.
+    fn parse_return_statement(&mut self) -> Result<AstNode, String> {
+        self.advance(); // Consume 'return'
+        let value = if !self.check(&Token::Semicolon) {
+            Some(Box::new(self.parse_expression(Precedence::None)?))
+        } else {
+            None
+        };
+        self.consume(&Token::Semicolon)?;
+        Ok(AstNode::ReturnStatement(value))
+    }
+
+    /// Parses a block of statements.
+    fn parse_block(&mut self) -> Result<Vec<AstNode>, String> {
+        let mut statements = Vec::new();
+        while !self.check(&Token::RBrace) && self.peek().is_some() {
+            statements.push(self.parse_statement()?);
+        }
+        Ok(statements)
     }
 
     /// Parses an expression.
-    fn parse_expression(&mut self) -> Result<AstNode, String> {
-        self.parse_assignment()
+    fn parse_expression(&mut self, precedence: Precedence) -> Result<AstNode, String> {
+        let mut left = self.parse_prefix()?;
+
+        while precedence < self.get_precedence() {
+            if self.is_at_end() {
+                break;
+            }
+            left = self.parse_infix(left)?;
+        }
+
+        Ok(left)
     }
 
-    /// Parses an assignment expression.
-    fn parse_assignment(&mut self) -> Result<AstNode, String> {
-        let expr = self.parse_or()?;
-        if self.match_token(Token::Assign) {
-            let value = self.parse_assignment()?;
-            Ok(AstNode::BinaryOperation {
-                left: Box::new(expr),
-                operator: BinaryOperator::Equals,
-                right: Box::new(value),
-            })
-        } else {
-            Ok(expr)
+    /// Parses a prefix expression.
+    fn parse_prefix(&mut self) -> Result<AstNode, String> {
+        match self.advance() {
+            Some(Token::Identifier(name)) => {
+                if self.check(&Token::LParen) {
+                    self.parse_call(AstNode::Identifier(name))
+                } else {
+                    Ok(AstNode::Identifier(name))
+                }
+            },
+            Some(Token::IntLiteral(value)) => Ok(AstNode::IntLiteral(value)),
+            Some(Token::FloatLiteral(value)) => Ok(AstNode::FloatLiteral(value)),
+            Some(Token::StringLiteral(value)) => Ok(AstNode::StringLiteral(value)),
+            Some(Token::BoolLiteral(value)) => Ok(AstNode::BoolLiteral(value)),
+            Some(Token::LParen) => {
+                let expr = self.parse_expression(Precedence::None)?;
+                self.consume(&Token::RParen)?;
+                Ok(expr)
+            }
+            Some(Token::Minus) => {
+                let right = self.parse_expression(Precedence::Unary)?;
+                Ok(AstNode::UnaryOperation {
+                    operator: UnaryOperator::Negate,
+                    operand: Box::new(right),
+                })
+            }
+            Some(Token::Not) => {
+                let right = self.parse_expression(Precedence::Unary)?;
+                Ok(AstNode::UnaryOperation {
+                    operator: UnaryOperator::Not,
+                    operand: Box::new(right),
+                })
+            }
+            _ => Err("Unexpected token in expression".to_string()),
         }
     }
 
-    /// Parses a logical OR expression.
-    fn parse_or(&mut self) -> Result<AstNode, String> {
-        let mut expr = self.parse_and()?;
-        while self.match_token(Token::Or) {
-            let right = Box::new(self.parse_and()?);
-            expr = AstNode::BinaryOperation {
-                left: Box::new(expr),
-                operator: BinaryOperator::Or,
-                right,
-            };
+    /// Parses an infix expression.
+    fn parse_infix(&mut self, left: AstNode) -> Result<AstNode, String> {
+        match self.peek() {
+            Some(Token::Plus) | Some(Token::Minus) => self.parse_binary(left, Precedence::Term),
+            Some(Token::Multiply) | Some(Token::Divide) => self.parse_binary(left, Precedence::Factor),
+            Some(Token::Eq) | Some(Token::NotEq) => self.parse_binary(left, Precedence::Equality),
+            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => self.parse_binary(left, Precedence::Comparison),
+            Some(Token::And) => self.parse_binary(left, Precedence::And),
+            Some(Token::Or) => self.parse_binary(left, Precedence::Or),
+            Some(Token::Assign) => self.parse_assignment(left),
+            Some(Token::LParen) => self.parse_call(left),
+            Some(Token::LBrace) => self.finish_trailing_closure(left),
+            Some(Token::Pipeline) => self.parse_pipeline(left),
+            _ => Ok(left),
         }
-        Ok(expr)
     }
 
-    /// Parses a logical AND expression.
-    fn parse_and(&mut self) -> Result<AstNode, String> {
-        let mut expr = self.parse_equality()?;
-        while self.match_token(Token::And) {
-            let right = Box::new(self.parse_equality()?);
-            expr = AstNode::BinaryOperation {
-                left: Box::new(expr),
-                operator: BinaryOperator::And,
-                right,
-            };
-        }
-        Ok(expr)
+    /// Parses a binary operation.
+    fn parse_binary(&mut self, left: AstNode, precedence: Precedence) -> Result<AstNode, String> {
+        let operator = self.advance().ok_or("Expected binary operator")?;
+        let right = self.parse_expression(precedence)?;
+        Ok(AstNode::BinaryOperation {
+            left: Box::new(left),
+            operator: self.token_to_binary_operator(operator)?,
+            right: Box::new(right),
+        })
     }
 
-    /// Parses an equality expression.
-    fn parse_equality(&mut self) -> Result<AstNode, String> {
-        let mut expr = self.parse_comparison()?;
-        while self.match_any(&[Token::Eq, Token::NotEq]) {
-            let operator = match self.previous() {
-                Token::Eq => BinaryOperator::Equals,
-                Token::NotEq => BinaryOperator::NotEquals,
-                _ => return Err("Unexpected token in equality expression".to_string()),
-            };
-            let right = Box::new(self.parse_comparison()?);
-            expr = AstNode::BinaryOperation {
-                left: Box::new(expr),
-                operator,
-                right,
-            };
+    /// Converts a token to a binary operator.
+    fn token_to_binary_operator(&self, token: Token) -> Result<BinaryOperator, String> {
+        match token {
+            Token::Plus => Ok(BinaryOperator::Add),
+            Token::Minus => Ok(BinaryOperator::Subtract),
+            Token::Multiply => Ok(BinaryOperator::Multiply),
+            Token::Divide => Ok(BinaryOperator::Divide),
+            Token::Eq => Ok(BinaryOperator::Equal),
+            Token::NotEq => Ok(BinaryOperator::NotEqual),
+            Token::Lt => Ok(BinaryOperator::LessThan),
+            Token::Gt => Ok(BinaryOperator::GreaterThan),
+            Token::LtEq => Ok(BinaryOperator::LessThanOrEqual),
+            Token::GtEq => Ok(BinaryOperator::GreaterThanOrEqual),
+            Token::And => Ok(BinaryOperator::And),
+            Token::Or => Ok(BinaryOperator::Or),
+            Token::Assign => Ok(BinaryOperator::Assign),
+            Token::Pipeline => Ok(BinaryOperator::Pipeline),
+            _ => Err(format!("Unexpected token for binary operator: {:?}", token)),
         }
-        Ok(expr)
     }
 
-    /// Parses a comparison expression.
-    fn parse_comparison(&mut self) -> Result<AstNode, String> {
-        let mut expr = self.parse_term()?;
-        while self.match_any(&[Token::Lt, Token::Gt, Token::LtEq, Token::GtEq]) {
-            let operator = match self.previous() {
-                Token::Lt => BinaryOperator::LessThan,
-                Token::Gt => BinaryOperator::GreaterThan,
-                Token::LtEq => BinaryOperator::LessThanOrEqual,
-                Token::GtEq => BinaryOperator::GreaterThanOrEqual,
-                _ => return Err("Unexpected token in comparison expression".to_string()),
-            };
-            let right = Box::new(self.parse_term()?);
-            expr = AstNode::BinaryOperation {
-                left: Box::new(expr),
-                operator,
-                right,
-            };
-        }
-        Ok(expr)
-    }
-
-    /// Parses a term (addition and subtraction).
-    fn parse_term(&mut self) -> Result<AstNode, String> {
-        let mut expr = self.parse_factor()?;
-        while self.match_any(&[Token::Plus, Token::Minus]) {
-            let operator = match self.previous() {
-                Token::Plus => BinaryOperator::Add,
-                Token::Minus => BinaryOperator::Subtract,
-                _ => return Err("Unexpected token in term".to_string()),
-            };
-            let right = Box::new(self.parse_factor()?);
-            expr = AstNode::BinaryOperation {
-                left: Box::new(expr),
-                operator,
-                right,
-            };
-        }
-        Ok(expr)
-    }
-
-    /// Parses a factor (multiplication and division).
-    fn parse_factor(&mut self) -> Result<AstNode, String> {
-        let mut expr = self.parse_unary()?;
-        while self.match_any(&[Token::Multiply, Token::Divide]) {
-            let operator = match self.previous() {
-                Token::Multiply => BinaryOperator::Multiply,
-                Token::Divide => BinaryOperator::Divide,
-                _ => return Err("Unexpected token in factor".to_string()),
-            };
-            let right = Box::new(self.parse_unary()?);
-            expr = AstNode::BinaryOperation {
-                left: Box::new(expr),
-                operator,
-                right,
-            };
-        }
-        Ok(expr)
-    }
-
-    /// Parses a unary expression.
-    fn parse_unary(&mut self) -> Result<AstNode, String> {
-        if self.match_any(&[Token::Minus, Token::Not]) {
-            let operator = match self.previous() {
-                Token::Minus => UnaryOperator::Negate,
-                Token::Not => UnaryOperator::Not,
-                _ => return Err("Unexpected unary operator".to_string()),
-            };
-            let operand = self.parse_unary()?;
-            Ok(AstNode::UnaryOperation {
-                operator,
-                operand: Box::new(operand),
-            })
-        } else {
-            self.parse_primary()
-        }
+    /// Parses an assignment operation.
+    fn parse_assignment(&mut self, left: AstNode) -> Result<AstNode, String> {
+        self.advance(); // Consume the '=' token
+        let value = self.parse_expression(Precedence::Assignment)?;
+        Ok(AstNode::BinaryOperation {
+            left: Box::new(left),
+            operator: BinaryOperator::Assign,
+            right: Box::new(value),
+        })
     }
 
     /// Parses a function call.
-    fn parse_call(&mut self) -> Result<AstNode, String> {
-        let mut expr = self.parse_primary()?;
-        loop {
-            if self.match_token(Token::LParen) {
-                expr = self.finish_call(expr)?;
-            } else {
-                break;
-            }
-        }
-        Ok(expr)
-    }
-
-    /// Finishes parsing a function call.
-    fn finish_call(&mut self, callee: AstNode) -> Result<AstNode, String> {
-        let mut arguments = Vec::new();
-        if !self.check(&Token::RParen) {
-            loop {
-                arguments.push(self.parse_expression()?);
-                if !self.match_token(Token::Comma) {
-                    break;
-                }
-            }
-        }
-        self.consume(Token::RParen)?;
+    fn parse_call(&mut self, callee: AstNode) -> Result<AstNode, String> {
+        let arguments = self.parse_arguments()?;
         Ok(AstNode::FunctionCall {
-            function: Box::new(callee),
+            callee: Box::new(callee),
             arguments,
         })
     }
 
-    /// Parses a primary expression (literal or identifier).
-    fn parse_primary(&mut self) -> Result<AstNode, String> {
-        match self.tokens.next() {
-            Some(Token::IntLiteral(value)) => Ok(AstNode::IntegerLiteral(value)),
-            Some(Token::FloatLiteral(value)) => Ok(AstNode::FloatLiteral(value)),
-            Some(Token::StringLiteral(value)) => Ok(AstNode::StringLiteral(value)),
-            Some(Token::BoolLiteral(value)) => Ok(AstNode::BooleanLiteral(value)),
-            Some(Token::Identifier(name)) => Ok(AstNode::Identifier(name)),
-            Some(Token::LParen) => {
-                let expr = self.parse_expression()?;
-                self.consume(Token::RParen)?;
-                Ok(expr)
+    /// Parses function arguments.
+    fn parse_arguments(&mut self) -> Result<Vec<AstNode>, String> {
+        let mut arguments = Vec::new();
+        self.consume(&Token::LParen)?;
+        if !self.check(&Token::RParen) {
+            loop {
+                arguments.push(self.parse_expression(Precedence::None)?);
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
             }
-            Some(Token::LBracket) => self.parse_array_literal(),
-            Some(token) => Err(format!(
-                "Unexpected token in primary expression: {:?}",
-                token
-            )),
-            None => Err("Unexpected end of input".to_string()),
+        }
+        self.consume(&Token::RParen)?;
+        Ok(arguments)
+    }
+
+    /// Parses a pipeline operation.
+    fn parse_pipeline(&mut self, left: AstNode) -> Result<AstNode, String> {
+        self.advance(); // Consume the '|>' token
+        let right = self.parse_expression(Precedence::Call)?;
+        Ok(AstNode::PipelineOperation {
+            left: Box::new(left),
+            right: Box::new(right),
+        })
+    }
+
+    /// Finishes parsing a trailing closure.
+    fn finish_trailing_closure(&mut self, callee: AstNode) -> Result<AstNode, String> {
+        let closure = self.parse_closure()?;
+        Ok(AstNode::TrailingClosure {
+            callee: Box::new(callee),
+            closure: Box::new(closure),
+        })
+    }
+
+    /// Parses a closure.
+    fn parse_closure(&mut self) -> Result<AstNode, String> {
+        self.consume(&Token::LBrace)?;
+        let body = self.parse_block()?;
+        self.consume(&Token::RBrace)?;
+        Ok(AstNode::Block(body))
+    }
+
+    /// Gets the precedence of the current token.
+    fn get_precedence(&self) -> Precedence {
+        match self.peek() {
+            Some(Token::Assign) => Precedence::Assignment,
+            Some(Token::Pipeline) => Precedence::Pipeline,
+            Some(Token::Or) => Precedence::Or,
+            Some(Token::And) => Precedence::And,
+            Some(Token::Eq) | Some(Token::NotEq) => Precedence::Equality,
+            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => Precedence::Comparison,
+            Some(Token::Plus) | Some(Token::Minus) => Precedence::Term,
+            Some(Token::Multiply) | Some(Token::Divide) => Precedence::Factor,
+            Some(Token::LParen) => Precedence::Call,
+            _ => Precedence::None,
         }
     }
 
-    /// Consumes the expected token or returns an error.
-    fn consume(&mut self, expected: Token) -> Result<(), String> {
-        if let Some(token) = self.tokens.next() {
-            if token == expected {
-                Ok(())
-            } else {
-                Err(format!("Expected {:?}, found {:?}", expected, token))
-            }
-        } else {
-            Err(format!("Expected {:?}, found end of input", expected))
-        }
-    }
-
-    /// Consumes an identifier token and returns its value.
-    fn consume_identifier(&mut self) -> Result<String, String> {
-        match self.tokens.next() {
+    /// Parses an identifier.
+    fn parse_identifier(&mut self) -> Result<String, String> {
+        match self.advance() {
             Some(Token::Identifier(name)) => Ok(name),
-            Some(token) => Err(format!("Expected identifier, found {:?}", token)),
-            None => Err("Expected identifier, found end of input".to_string()),
+            _ => Err("Expected identifier".to_string()),
         }
     }
 
-    /// Checks if the next token matches the expected token without consuming it.
-    fn check(&mut self, expected: &Token) -> bool {
-        self.tokens.peek() == Some(expected)
-    }
-
-    /// Consumes the next token if it matches any of the given tokens.
-    fn match_any(&mut self, tokens: &[Token]) -> bool {
-        for token in tokens {
-            if self.check(token) {
-                self.tokens.next();
-                return true;
+    /// Synchronizes the parser after an error.
+    fn synchronize(&mut self) {
+        while let Some(token) = self.advance() {
+            if matches!(
+                token,
+                Token::Semicolon
+                    | Token::Func
+                    | Token::Let
+                    | Token::For
+                    | Token::If
+                    | Token::While
+                    | Token::Return
+            ) {
+                return;
             }
         }
-        false
     }
 
-    /// Consumes the next token if it matches the expected token.
-    fn match_token(&mut self, expected: Token) -> bool {
-        if self.check(&expected) {
-            self.tokens.next();
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Returns the previously consumed token.
-    fn previous(&mut self) -> &Token {
-        self.tokens.peek().expect("No previous token")
+    /// Checks if the parser has reached the end of the token stream.
+    fn is_at_end(&self) -> bool {
+        self.peek() == Some(&Token::Eof) || self.peek().is_none()
     }
 }
 
 /// Parses a vector of tokens into an AST.
 pub fn parse(tokens: Vec<Token>) -> Result<AstNode, String> {
     let mut parser = Parser::new(tokens);
-    parser.parse_program()
+    parser.parse()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer;
+    use crate::lexer::Token;
 
-    fn parse_code(input: &str) -> Result<AstNode, String> {
-        let tokens = lexer::tokenize(input)?;
-        parse(tokens)
+    // Helper function to create a parser from a vector of tokens
+    fn create_parser(tokens: Vec<Token>) -> Parser {
+        Parser::new(tokens)
     }
 
     #[test]
-    fn test_variable_declaration() {
-        let input = "let x: int = 5;";
-        let ast = parse_code(input).unwrap();
-        assert!(matches!(ast, AstNode::Program(ref statements) if statements.len() == 1));
-        if let AstNode::Program(ref statements) = ast {
-            assert!(matches!(&statements[0],
-                AstNode::VariableDeclaration {
-                    name,
-                    is_mutable,
-                    type_annotation,
-                    initializer: Some(box AstNode::IntegerLiteral(5))
-                } if name == "x" && !is_mutable &&
-                    matches!(type_annotation, Some(TypeAnnotation::Int))
-            ));
-        }
+    fn test_parse_variable_declaration() {
+        let tokens = vec![
+            Token::Let,
+            Token::Identifier("x".to_string()),
+            Token::Colon,
+            Token::Identifier("int".to_string()),
+            Token::Assign,
+            Token::IntLiteral(5),
+            Token::Semicolon,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_declaration().unwrap();
+        assert!(matches!(result,
+            AstNode::VariableDeclaration {
+                name,
+                type_annotation: Some(TypeAnnotation::Simple(type_name)),
+                initializer: Some(box AstNode::IntLiteral(5))
+            } if name == "x" && type_name == "int"
+        ));
     }
 
     #[test]
-    fn test_function_declaration() {
-        let input = "func add(a: int, b: int) -> int { return a + b; }";
-        let ast = parse_code(input).unwrap();
-        assert!(matches!(ast, AstNode::Program(ref statements) if statements.len() == 1));
-        if let AstNode::Program(ref statements) = ast {
-            assert!(matches!(&statements[0],
-                AstNode::FunctionDeclaration {
-                    name,
-                    params,
-                    return_type,
-                    body: box AstNode::Block(_)
-                } if name == "add" &&
-                    params.len() == 2 &&
-                    matches!(return_type, Some(TypeAnnotation::Int))
-            ));
-        }
+    fn test_parse_function_declaration() {
+        let tokens = vec![
+            Token::Func,
+            Token::Identifier("add".to_string()),
+            Token::LParen,
+            Token::Identifier("a".to_string()),
+            Token::Colon,
+            Token::Identifier("int".to_string()),
+            Token::Comma,
+            Token::Identifier("b".to_string()),
+            Token::Colon,
+            Token::Identifier("int".to_string()),
+            Token::RParen,
+            Token::Arrow,
+            Token::Identifier("int".to_string()),
+            Token::LBrace,
+            Token::Return,
+            Token::Identifier("a".to_string()),
+            Token::Plus,
+            Token::Identifier("b".to_string()),
+            Token::Semicolon,
+            Token::RBrace,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_declaration().unwrap();
+        assert!(matches!(result,
+            AstNode::FunctionDeclaration {
+                name,
+                params,
+                return_type: Some(TypeAnnotation::Simple(return_type)),
+                body
+            } if name == "add" && params.len() == 2 && return_type == "int" && body.len() == 1
+        ));
     }
 
     #[test]
-    fn test_if_statement() {
-        let input = "if (x > 5) { return true; } else { return false; }";
-        let ast = parse_code(input).unwrap();
-        assert!(matches!(ast, AstNode::Program(ref statements) if statements.len() == 1));
-        if let AstNode::Program(ref statements) = ast {
-            assert!(matches!(&statements[0],
-                AstNode::IfStatement {
-                    condition: box AstNode::BinaryOperation { .. },
-                    then_branch: box AstNode::Block(_),
-                    else_branch: Some(box AstNode::Block(_))
+    fn test_parse_if_statement() {
+        let tokens = vec![
+            Token::If,
+            Token::LParen,
+            Token::Identifier("x".to_string()),
+            Token::Gt,
+            Token::IntLiteral(5),
+            Token::RParen,
+            Token::LBrace,
+            Token::Return,
+            Token::BoolLiteral(true),
+            Token::Semicolon,
+            Token::RBrace,
+            Token::Else,
+            Token::LBrace,
+            Token::Return,
+            Token::BoolLiteral(false),
+            Token::Semicolon,
+            Token::RBrace,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_statement().unwrap();
+        assert!(matches!(result,
+            AstNode::IfStatement {
+                condition: box AstNode::BinaryOperation { .. },
+                then_branch: box AstNode::Block(then_statements),
+                else_branch: Some(box AstNode::Block(else_statements))
+            } if then_statements.len() == 1 && else_statements.len() == 1
+        ));
+    }
+
+    #[test]
+    fn test_parse_while_loop() {
+        let tokens = vec![
+            Token::While,
+            Token::LParen,
+            Token::Identifier("i".to_string()),
+            Token::Lt,
+            Token::IntLiteral(10),
+            Token::RParen,
+            Token::LBrace,
+            Token::Identifier("i".to_string()),
+            Token::Assign,
+            Token::Identifier("i".to_string()),
+            Token::Plus,
+            Token::IntLiteral(1),
+            Token::Semicolon,
+            Token::RBrace,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_statement().unwrap();
+        assert!(matches!(result,
+            AstNode::WhileLoop {
+                condition: box AstNode::BinaryOperation { .. },
+                body: box AstNode::Block(statements)
+            } if statements.len() == 1
+        ));
+    }
+
+    #[test]
+    fn test_parse_for_loop() {
+        let tokens = vec![
+            Token::For,
+            Token::LParen,
+            Token::Let,
+            Token::Identifier("i".to_string()),
+            Token::Assign,
+            Token::IntLiteral(0),
+            Token::Semicolon,
+            Token::Identifier("i".to_string()),
+            Token::Lt,
+            Token::IntLiteral(10),
+            Token::Semicolon,
+            Token::Identifier("i".to_string()),
+            Token::Assign,
+            Token::Identifier("i".to_string()),
+            Token::Plus,
+            Token::IntLiteral(1),
+            Token::RParen,
+            Token::LBrace,
+            Token::RBrace,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_statement().unwrap();
+        assert!(matches!(result,
+            AstNode::ForLoop {
+                initializer: Some(box AstNode::VariableDeclaration { .. }),
+                condition: Some(box AstNode::BinaryOperation { .. }),
+                increment: Some(box AstNode::BinaryOperation { .. }),
+                body: box AstNode::Block(_)
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_pipeline_operator() {
+        let tokens = vec![
+            Token::Identifier("x".to_string()),
+            Token::Pipeline,
+            Token::Identifier("foo".to_string()),
+            Token::LParen,
+            Token::RParen,
+            Token::Pipeline,
+            Token::Identifier("bar".to_string()),
+            Token::LParen,
+            Token::RParen,
+            Token::Semicolon,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_statement().unwrap();
+        assert!(matches!(result,
+            AstNode::PipelineOperation {
+                left: box AstNode::PipelineOperation { .. },
+                right: box AstNode::FunctionCall { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_trailing_closure() {
+        let tokens = vec![
+            Token::Identifier("someFunction".to_string()),
+            Token::LParen,
+            Token::RParen,
+            Token::LBrace,
+            Token::Return,
+            Token::IntLiteral(42),
+            Token::Semicolon,
+            Token::RBrace,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_expression(Precedence::None).unwrap();
+        assert!(matches!(result,
+            AstNode::TrailingClosure {
+                callee: box AstNode::FunctionCall { .. },
+                closure: box AstNode::Block(statements)
+            } if statements.len() == 1
+        ));
+    }
+
+    #[test]
+    fn test_parse_guard_statement() {
+        let tokens = vec![
+            Token::Guard,
+            Token::Identifier("x".to_string()),
+            Token::Gt,
+            Token::IntLiteral(0),
+            Token::Else,
+            Token::LBrace,
+            Token::Return,
+            Token::Semicolon,
+            Token::RBrace,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_statement().unwrap();
+        assert!(matches!(result,
+            AstNode::GuardStatement {
+                condition: box AstNode::BinaryOperation { .. },
+                body: box AstNode::Block(statements)
+            } if statements.len() == 1
+        ));
+    }
+
+    #[test]
+    fn test_parse_return_statement() {
+        let tokens = vec![
+            Token::Return,
+            Token::Identifier("x".to_string()),
+            Token::Plus,
+            Token::Identifier("y".to_string()),
+            Token::Semicolon,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_statement().unwrap();
+        assert!(matches!(
+            result,
+            AstNode::ReturnStatement(Some(box AstNode::BinaryOperation { .. }))
+        ));
+    }
+
+    #[test]
+    fn test_parse_complex_expression() {
+        let tokens = vec![
+            Token::Identifier("a".to_string()),
+            Token::Plus,
+            Token::Identifier("b".to_string()),
+            Token::Multiply,
+            Token::LParen,
+            Token::Identifier("c".to_string()),
+            Token::Minus,
+            Token::Identifier("d".to_string()),
+            Token::RParen,
+            Token::Semicolon,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_statement().unwrap();
+        assert!(matches!(result,
+            AstNode::BinaryOperation {
+                left: box AstNode::Identifier(a),
+                operator: BinaryOperator::Add,
+                right: box AstNode::BinaryOperation {
+                    left: box AstNode::Identifier(b),
+                    operator: BinaryOperator::Multiply,
+                    right: box AstNode::BinaryOperation { .. }
                 }
-            ));
+            } if a == "a" && b == "b"
+        ));
+    }
+
+    #[test]
+    fn test_parse_generic_type_annotation() {
+        let tokens = vec![
+            Token::Let,
+            Token::Identifier("x".to_string()),
+            Token::Colon,
+            Token::Identifier("Array".to_string()),
+            Token::LBracket,
+            Token::Identifier("int".to_string()),
+            Token::RBracket,
+            Token::Assign,
+            Token::LBracket,
+            Token::IntLiteral(1),
+            Token::Comma,
+            Token::IntLiteral(2),
+            Token::Comma,
+            Token::IntLiteral(3),
+            Token::RBracket,
+            Token::Semicolon,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_declaration().unwrap();
+        assert!(matches!(result,
+            AstNode::VariableDeclaration {
+                name,
+                type_annotation: Some(TypeAnnotation::Generic(base_type, params)),
+                initializer: Some(box AstNode::FunctionCall { .. })
+            } if name == "x" && base_type == "Array" && params.len() == 1
+        ));
+    }
+
+    #[test]
+    fn test_parse_nested_generic_type_annotation() {
+        let tokens = vec![
+            Token::Let,
+            Token::Identifier("x".to_string()),
+            Token::Colon,
+            Token::Identifier("Map".to_string()),
+            Token::LBracket,
+            Token::Identifier("String".to_string()),
+            Token::Comma,
+            Token::Identifier("Array".to_string()),
+            Token::LBracket,
+            Token::Identifier("int".to_string()),
+            Token::RBracket,
+            Token::RBracket,
+            Token::Semicolon,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_declaration().unwrap();
+        assert!(matches!(result,
+            AstNode::VariableDeclaration {
+                name,
+                type_annotation: Some(TypeAnnotation::Generic(base_type, params)),
+                initializer: None
+            } if name == "x" && base_type == "Map" && params.len() == 2
+        ));
+    }
+
+    #[test]
+    fn test_parse_function_with_generic_return_type() {
+        let tokens = vec![
+            Token::Func,
+            Token::Identifier("getValues".to_string()),
+            Token::LParen,
+            Token::RParen,
+            Token::Arrow,
+            Token::Identifier("Array".to_string()),
+            Token::LBracket,
+            Token::Identifier("int".to_string()),
+            Token::RBracket,
+            Token::LBrace,
+            Token::Return,
+            Token::LBracket,
+            Token::IntLiteral(1),
+            Token::Comma,
+            Token::IntLiteral(2),
+            Token::Comma,
+            Token::IntLiteral(3),
+            Token::RBracket,
+            Token::Semicolon,
+            Token::RBrace,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse_declaration().unwrap();
+        assert!(matches!(result,
+            AstNode::FunctionDeclaration {
+                name,
+                params,
+                return_type: Some(TypeAnnotation::Generic(base_type, type_params)),
+                body
+            } if name == "getValues" && params.is_empty() && base_type == "Array" && type_params.len() == 1 && body.len() == 1
+        ));
+    }
+
+    #[test]
+    fn test_parse_error_recovery() {
+        let tokens = vec![
+            Token::Let,
+            Token::Identifier("x".to_string()),
+            Token::Assign,
+            Token::IntLiteral(5),
+            // Missing semicolon
+            Token::Let,
+            Token::Identifier("y".to_string()),
+            Token::Assign,
+            Token::IntLiteral(10),
+            Token::Semicolon,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse();
+        assert!(result.is_ok());
+        if let Ok(AstNode::Program(statements)) = result {
+            assert_eq!(statements.len(), 2);
+            assert!(matches!(statements[0], AstNode::VariableDeclaration { .. }));
+            assert!(matches!(statements[1], AstNode::VariableDeclaration { .. }));
+        } else {
+            panic!("Expected Program node");
         }
     }
 
     #[test]
-    fn test_while_loop() {
-        let input = "while (i < 10) { i = i + 1; }";
-        let ast = parse_code(input).unwrap();
-        assert!(matches!(ast, AstNode::Program(ref statements) if statements.len() == 1));
-        if let AstNode::Program(ref statements) = ast {
-            assert!(matches!(&statements[0],
-                AstNode::WhileLoop {
-                    condition: box AstNode::BinaryOperation { .. },
-                    body: box AstNode::Block(_)
-                }
-            ));
-        }
-    }
-
-    #[test]
-    fn test_for_loop() {
-        let input = "for (let i = 0; i < 10; i = i + 1) { print(i); }";
-        let ast = parse_code(input).unwrap();
-        assert!(matches!(ast, AstNode::Program(ref statements) if statements.len() == 1));
-        if let AstNode::Program(ref statements) = ast {
-            assert!(matches!(&statements[0],
-                AstNode::ForLoop {
-                    initializer: Some(_),
-                    condition: Some(_),
-                    increment: Some(_),
-                    body: box AstNode::Block(_)
-                }
-            ));
-        }
-    }
-
-    #[test]
-    fn test_array_literal() {
-        let input = "let arr = [1, 2, 3, 4, 5];";
-        let ast = parse_code(input).unwrap();
-        assert!(matches!(ast, AstNode::Program(ref statements) if statements.len() == 1));
-        if let AstNode::Program(ref statements) = ast {
-            assert!(matches!(&statements[0],
-                AstNode::VariableDeclaration {
-                    initializer: Some(box AstNode::ArrayLiteral(elements)),
-                    ..
-                } if elements.len() == 5
-            ));
-        }
-    }
-
-    #[test]
-    fn test_complex_expression() {
-        let input = "let result = (a + b) * (c - d) / 2;";
-        let ast = parse_code(input).unwrap();
-        assert!(matches!(ast, AstNode::Program(ref statements) if statements.len() == 1));
-        if let AstNode::Program(ref statements) = ast {
-            assert!(matches!(&statements[0],
-                AstNode::VariableDeclaration {
-                    initializer: Some(box AstNode::BinaryOperation { .. }),
-                    ..
-                }
-            ));
+    fn test_parse_complex_program() {
+        let tokens = vec![
+            Token::Func,
+            Token::Identifier("processData".to_string()),
+            Token::LParen,
+            Token::Identifier("data".to_string()),
+            Token::Colon,
+            Token::Identifier("Array".to_string()),
+            Token::LBracket,
+            Token::Identifier("int".to_string()),
+            Token::RBracket,
+            Token::RParen,
+            Token::Arrow,
+            Token::Identifier("int".to_string()),
+            Token::LBrace,
+            Token::Let,
+            Token::Identifier("sum".to_string()),
+            Token::Assign,
+            Token::IntLiteral(0),
+            Token::Semicolon,
+            Token::For,
+            Token::LParen,
+            Token::Let,
+            Token::Identifier("i".to_string()),
+            Token::Assign,
+            Token::IntLiteral(0),
+            Token::Semicolon,
+            Token::Identifier("i".to_string()),
+            Token::Lt,
+            Token::Identifier("data".to_string()),
+            Token::Dot,
+            Token::Identifier("length".to_string()),
+            Token::Semicolon,
+            Token::Identifier("i".to_string()),
+            Token::Assign,
+            Token::Identifier("i".to_string()),
+            Token::Plus,
+            Token::IntLiteral(1),
+            Token::RParen,
+            Token::LBrace,
+            Token::If,
+            Token::LParen,
+            Token::Identifier("data".to_string()),
+            Token::LBracket,
+            Token::Identifier("i".to_string()),
+            Token::RBracket,
+            Token::Gt,
+            Token::IntLiteral(0),
+            Token::RParen,
+            Token::LBrace,
+            Token::Identifier("sum".to_string()),
+            Token::Assign,
+            Token::Identifier("sum".to_string()),
+            Token::Plus,
+            Token::Identifier("data".to_string()),
+            Token::LBracket,
+            Token::Identifier("i".to_string()),
+            Token::RBracket,
+            Token::Semicolon,
+            Token::RBrace,
+            Token::RBrace,
+            Token::Return,
+            Token::Identifier("sum".to_string()),
+            Token::Semicolon,
+            Token::RBrace,
+        ];
+        let mut parser = create_parser(tokens);
+        let result = parser.parse();
+        assert!(result.is_ok());
+        if let Ok(AstNode::Program(statements)) = result {
+            assert_eq!(statements.len(), 1);
+            assert!(matches!(statements[0], AstNode::FunctionDeclaration { .. }));
+        } else {
+            panic!("Expected Program node");
         }
     }
 }
