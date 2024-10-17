@@ -6,6 +6,8 @@
 use crate::error::LexerError;
 use std::iter::Peekable;
 use std::str::Chars;
+use std::fmt;
+
 
 /// Represents a token in Alloy.
 #[derive(Debug, PartialEq, Clone)]
@@ -76,6 +78,24 @@ pub enum Token {
     Eof,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Location {
+    pub line: usize,
+    pub column: usize,
+}
+
+impl Location {
+    pub fn n(line: usize, column: usize) -> Location {
+        Location { line, column }
+    }
+}
+
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.line, self.column)
+    }
+}
+
 /// The Lexer struct handles the conversion of source code into tokens.
 pub struct Lexer<'a> {
     input: Peekable<Chars<'a>>,
@@ -105,6 +125,13 @@ impl<'a> Lexer<'a> {
             }
         }
         ch
+    }
+
+    /// Returns the current line and column position of the lexer in a tuple struct.
+    /// Primarily for more useful error production.
+    #[inline]
+    fn loc(&self) -> Location {
+        Location::n(self.line, self.column)
     }
 
     /// Peeks at the next character in the input without advancing the lexer.
@@ -153,7 +180,7 @@ impl<'a> Lexer<'a> {
                 number.push(self.advance().unwrap());
             } else if c == '.' && has_decimal {
                 // We've encountered a second decimal point, which is invalid
-                return Err(LexerError::InvalidNumber(number));
+                return Err(LexerError::InvalidNumber(number, self.loc()));
             } else {
                 break;
             }
@@ -163,12 +190,12 @@ impl<'a> Lexer<'a> {
             number
                 .parse::<f64>()
                 .map(Token::FloatLiteral)
-                .map_err(|_| LexerError::InvalidNumber(number))
+                .map_err(|_| LexerError::InvalidNumber(number, self.loc()))
         } else {
             number
                 .parse::<i64>()
                 .map(Token::IntLiteral)
-                .map_err(|_| LexerError::InvalidNumber(number))
+                .map_err(|_| LexerError::InvalidNumber(number, self.loc()))
         }
     }
 
@@ -181,7 +208,7 @@ impl<'a> Lexer<'a> {
             }
             string.push(c);
         }
-        Err(LexerError::UnterminatedString)
+        Err(LexerError::UnterminatedString(self.loc()))
     }
 
     // Update the `match_keyword` function in the lexer
@@ -280,7 +307,7 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         Ok(Token::And)
                     } else {
-                        Err(LexerError::UnexpectedChar('&'))
+                        Err(LexerError::UnexpectedChar('&', self.loc()))
                     }
                 }
                 '|' => {
@@ -291,7 +318,7 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         Ok(Token::Or)
                     } else {
-                        Err(LexerError::UnexpectedChar('|'))
+                        Err(LexerError::UnexpectedChar('|', self.loc()))
                     }
                 }
                 '(' => Ok(Token::LParen),
@@ -305,7 +332,7 @@ impl<'a> Lexer<'a> {
                 ':' => Ok(Token::Colon),
                 ';' => Ok(Token::Semicolon),
                 '\n' => Ok(Token::Newline),
-                _ => Err(LexerError::UnexpectedChar(c)),
+                _ => Err(LexerError::UnexpectedChar(c, self.loc())),
             },
             None => Ok(Token::Eof),
         }
@@ -701,13 +728,13 @@ mod tests {
         let input = "let x = 3.14.15;";
         assert!(matches!(
             Lexer::tokenize(input),
-            Err(LexerError::InvalidNumber(_))
+            Err(LexerError::InvalidNumber(_, _))
         ));
 
         let input = "let y = $100;";
         assert!(matches!(
             Lexer::tokenize(input),
-            Err(LexerError::UnexpectedChar('$'))
+            Err(LexerError::UnexpectedChar('$', _))
         ));
     }
 
@@ -716,13 +743,13 @@ mod tests {
         let input = "let x = 3.14.15;";
         assert!(matches!(
             Lexer::tokenize(input),
-            Err(LexerError::InvalidNumber(_))
+            Err(LexerError::InvalidNumber(_, _))
         ));
 
         let input = "let y = @invalid;";
         assert!(matches!(
             Lexer::tokenize(input),
-            Err(LexerError::UnexpectedChar('@'))
+            Err(LexerError::UnexpectedChar('@', _))
         ));
     }
 }

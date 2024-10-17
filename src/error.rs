@@ -1,6 +1,10 @@
 use std::error::Error;
 use std::fmt;
 
+use crate::lexer::Location;
+
+
+
 #[derive(Debug)]
 pub enum CompilerError {
     LexerError(LexerError),
@@ -27,17 +31,28 @@ impl Error for CompilerError {
 
 #[derive(Debug)]
 pub enum LexerError {
-    UnexpectedChar(char),
-    InvalidNumber(String),
-    UnterminatedString,
+    UnexpectedChar(char, Location),
+    InvalidNumber(String, Location),
+    UnterminatedString(Location),
+}
+
+impl LexerError {
+    /// Returns the location of the error in the source code.
+    fn location(&self) -> Location {
+        match self {
+            LexerError::UnexpectedChar(_, l) => *l,
+            LexerError::InvalidNumber(_, l) => *l,
+            LexerError::UnterminatedString(l) => *l,
+        }
+    }
 }
 
 impl fmt::Display for LexerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LexerError::UnexpectedChar(c) => write!(f, "Unexpected character: {}", c),
-            LexerError::InvalidNumber(s) => write!(f, "Invalid number: {}", s),
-            LexerError::UnterminatedString => write!(f, "Unterminated string"),
+            LexerError::UnexpectedChar(c, l) => write!(f, "Unexpected character at {}: {}", l, c),
+            LexerError::InvalidNumber(s, l) => write!(f, "Invalid number at {}: {}", l, s),
+            LexerError::UnterminatedString(l) => write!(f, "Unterminated string at {}", l),
         }
     }
 }
