@@ -22,6 +22,8 @@ enum Precedence {
     Unary,      // ! -
     Call,       // . ()
     Primary,
+}
+
 impl Precedence {
     fn from_token(token: &Token) -> Precedence {
         match token {
@@ -46,6 +48,7 @@ pub enum AstNode {
     Program(Vec<AstNode>),
     FunctionDeclaration {
         name: String,
+        generic_params: Option<Vec<String>>,
         params: Vec<(String, TypeAnnotation)>,
         return_type: Option<TypeAnnotation>,
         body: Vec<AstNode>,
@@ -64,10 +67,9 @@ pub enum AstNode {
         condition: Box<AstNode>,
         body: Box<AstNode>,
     },
-    ForLoop {
-        initializer: Option<Box<AstNode>>,
-        condition: Option<Box<AstNode>>,
-        increment: Option<Box<AstNode>>,
+    ForInLoop {
+        item: String,
+        iterable: Box<AstNode>,
         body: Box<AstNode>,
     },
     GuardStatement {
@@ -87,6 +89,11 @@ pub enum AstNode {
     },
     FunctionCall {
         callee: Box<AstNode>,
+        arguments: Vec<AstNode>,
+    },
+    GenericFunctionCall {
+        name: String,
+        generic_args: Vec<TypeAnnotation>,
         arguments: Vec<AstNode>,
     },
     TrailingClosure {
@@ -136,6 +143,7 @@ pub enum BinaryOperator {
 pub enum UnaryOperator {
     Negate,
     Not,
+    Increment,
 }
 
 /// The Parser struct holds the state during parsing.
@@ -160,7 +168,9 @@ impl Parser {
 
     /// Advances to the next token, consuming the current one.
     fn advance(&mut self) -> Option<Token> {
-        self.tokens.pop_front()
+        let token = self.tokens.pop_front();
+        println!("advance: {:?}", token);
+        token
     }
 
     /// Checks if the next token matches the expected token.
@@ -170,21 +180,28 @@ impl Parser {
 
     /// Consumes the next token if it matches the expected token.
     fn match_token(&mut self, expected: &Token) -> bool {
-        if self.check(expected) {
-            self.advance();
-            true
-        } else {
-            false
+        let current = self.peek();
+        println!("match_token: expected {:?}, found {:?}", expected, current);
+        if let Some(token) = current {
+            if token == expected {
+                self.advance();
+                return true;
+            }
         }
+        false
     }
 
     /// Consumes the expected token or returns an error.
     fn consume(&mut self, expected: &Token) -> Result<(), String> {
-        if self.match_token(expected) {
-            Ok(())
-        } else {
-            Err(format!("Expected {:?}, found {:?}", expected, self.peek()))
+        let current = self.peek();
+        println!("consume: expected {:?}, found {:?}", expected, current);
+        if let Some(token) = current {
+            if token == expected {
+                self.advance();
+                return Ok(());
+            }
         }
+        Err(format!("Expected {:?}, found {:?}", expected, current))
     }
 
     /// Retrieves the recorded errors.
@@ -194,39 +211,67 @@ impl Parser {
 
     /// Parses the entire program.
     pub fn parse(&mut self) -> Result<AstNode, String> {
-        let mut statements = Vec::new();
+        let mut declarations = Vec::new();
         while !self.is_at_end() {
-            match self.parse_declaration() {
-                Ok(stmt) => statements.push(stmt),
-                Err(e) => {
-                    self.errors.push(e.to_string());
-                    self.synchronize();
-                }
+            match self.peek() {
+                Some(Token::Func) => declarations.push(self.parse_function_declaration()?),
+                _ => declarations.push(self.parse_declaration()?),
             }
         }
-        Ok(AstNode::Program(statements))
+        if declarations.is_empty() {
+            Err("No valid declarations found".to_string())
+        } else {
+            Ok(AstNode::Program(declarations))
+        }
+    }
+
+    /// Parses a primary expression.
+    fn parse_primary(&mut self) -> Result<AstNode, String> {
+        match self.advance() {
+            Some(Token::Identifier(name)) => {
+                if self.check(&Token::LParen) {
+                    self.parse_function_call(AstNode::Identifier(name))
+                } else {
+                    Ok(AstNode::Identifier(name))
+                }
+            }
+            Some(Token::IntLiteral(value)) => Ok(AstNode::IntLiteral(value)),
+            Some(Token::FloatLiteral(value)) => Ok(AstNode::FloatLiteral(value)),
+            Some(Token::StringLiteral(value)) => Ok(AstNode::StringLiteral(value)),
+            Some(Token::BoolLiteral(value)) => Ok(AstNode::BoolLiteral(value)),
+            Some(Token::LParen) => {
+                let expr = self.parse_expression(Precedence::None)?;
+                self.consume(&Token::RParen)?;
+                Ok(expr)
+            }
+            Some(Token::LBrace) => self.parse_trailing_closure(),
+            Some(Token::LBracket) => self.parse_array_literal(),
+            _ => Err("Unexpected token in primary expression".to_string()),
+        }
     }
 
     /// Parses a declaration (function or variable).
     fn parse_declaration(&mut self) -> Result<AstNode, String> {
-        let result = if self.match_token(&Token::Func) {
-            self.parse_function_declaration()
-        } else if self.match_token(&Token::Let) {
-            self.parse_variable_declaration()
-        } else {
-            self.parse_statement()
-        };
-
-        if result.is_err() {
-            self.synchronize();
+        match self.peek() {
+            Some(Token::Let) => self.parse_variable_declaration(),
+            Some(Token::Func) => self.parse_function_declaration(),
+            _ => self.parse_statement(),
         }
-
-        result
     }
 
     /// Parses a function declaration.
     fn parse_function_declaration(&mut self) -> Result<AstNode, String> {
+        self.consume(&Token::Func)?;
         let name = self.parse_identifier()?;
+
+        let generic_params = if self.match_token(&Token::LBracket) {
+            let params = self.parse_generic_params()?;
+            self.consume(&Token::RBracket)?;
+            Some(params)
+        } else {
+            None
+        };
+
         self.consume(&Token::LParen)?;
         let params = self.parse_parameters()?;
         self.consume(&Token::RParen)?;
@@ -237,19 +282,58 @@ impl Parser {
             None
         };
 
-        self.consume(&Token::LBrace)?;
         let body = self.parse_block()?;
-        self.consume(&Token::RBrace)?;
 
         Ok(AstNode::FunctionDeclaration {
             name,
+            generic_params,
             params,
             return_type,
             body,
         })
     }
 
-    /// Parses function parameters.
+    fn parse_function_call(&mut self, callee: AstNode) -> Result<AstNode, String> {
+        let arguments = self.parse_arguments()?;
+
+        if self.check(&Token::LBrace) {
+            let closure = self.parse_trailing_closure()?;
+            Ok(AstNode::TrailingClosure {
+                callee: Box::new(AstNode::FunctionCall {
+                    callee: Box::new(callee),
+                    arguments,
+                }),
+                closure: Box::new(closure),
+            })
+        } else {
+            Ok(AstNode::FunctionCall {
+                callee: Box::new(callee),
+                arguments,
+            })
+        }
+    }
+
+    /// Finishes parsing a trailing closure.
+    fn parse_trailing_closure(&mut self) -> Result<AstNode, String> {
+        self.consume(&Token::LBrace)?;
+        let body = self.parse_block()?;
+        self.consume(&Token::RBrace)?;
+        Ok(AstNode::Block(body))
+    }
+
+    // Helper method to parse generic parameters
+    fn parse_generic_params(&mut self) -> Result<Vec<String>, String> {
+        let mut params = Vec::new();
+        while !self.check(&Token::RBracket) {
+            params.push(self.parse_identifier()?);
+            if !self.match_token(&Token::Comma) {
+                break;
+            }
+        }
+        Ok(params)
+    }
+
+    // Helper method to parse function parameters
     fn parse_parameters(&mut self) -> Result<Vec<(String, TypeAnnotation)>, String> {
         let mut params = Vec::new();
         if !self.check(&Token::RParen) {
@@ -266,12 +350,12 @@ impl Parser {
         Ok(params)
     }
 
-    /// Parses a type annotation.
+    // Parses type annotations.
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, String> {
         let base_type = self.parse_identifier()?;
         if self.match_token(&Token::LBracket) {
             let mut params = Vec::new();
-            loop {
+            while !self.check(&Token::RBracket) {
                 params.push(self.parse_type_annotation()?);
                 if !self.match_token(&Token::Comma) {
                     break;
@@ -286,24 +370,18 @@ impl Parser {
 
     /// Parses a variable declaration.
     fn parse_variable_declaration(&mut self) -> Result<AstNode, String> {
+        self.consume(&Token::Let)?;
         let name = self.parse_identifier()?;
         let type_annotation = if self.match_token(&Token::Colon) {
-            let type_annotation = self.parse_type_annotation()?;
-            Some(type_annotation)
+            Some(self.parse_type_annotation()?)
         } else {
             None
         };
         let initializer = if self.match_token(&Token::Assign) {
-            let initializer = self.parse_expression(Precedence::None)?;
-            Some(Box::new(initializer))
+            Some(Box::new(self.parse_expression(Precedence::None)?))
         } else {
             None
         };
-        if let Err(e) = self.consume(&Token::Semicolon) {
-            self.errors.push(e.to_string());
-            self.synchronize();
-            return Err(e);
-        }
         Ok(AstNode::VariableDeclaration {
             name,
             type_annotation,
@@ -319,11 +397,14 @@ impl Parser {
             Some(Token::For) => self.parse_for_statement(),
             Some(Token::Guard) => self.parse_guard_statement(),
             Some(Token::Return) => self.parse_return_statement(),
-            Some(Token::LBrace) => self.parse_block().map(AstNode::Block),
+            Some(Token::LBrace) => Ok(AstNode::Block(self.parse_block()?)),
             _ => {
                 let expr = self.parse_expression(Precedence::None)?;
-                self.consume(&Token::Semicolon)?;
-                Ok(expr)
+                if self.match_token(&Token::Semicolon) {
+                    Ok(expr)
+                } else {
+                    Err("Expected semicolon after expression statement".to_string())
+                }
             }
         }
     }
@@ -362,134 +443,77 @@ impl Parser {
 
     /// Parses a for statement.
     fn parse_for_statement(&mut self) -> Result<AstNode, String> {
-        self.advance(); // Consume 'for'
-        self.consume(&Token::LParen)?;
-        let initializer = if !self.check(&Token::Semicolon) {
-            Some(Box::new(self.parse_variable_declaration()?))
-        } else {
-            self.advance(); // Consume semicolon
-            None
-        };
-        let condition = if !self.check(&Token::Semicolon) {
-            Some(Box::new(self.parse_expression(Precedence::None)?))
-        } else {
-            None
-        };
-        self.consume(&Token::Semicolon)?;
-        let increment = if !self.check(&Token::RParen) {
-            Some(Box::new(self.parse_expression(Precedence::None)?))
-        } else {
-            None
-        };
-        self.consume(&Token::RParen)?;
-        let body = Box::new(self.parse_statement()?);
-        Ok(AstNode::ForLoop {
-            initializer,
-            condition,
-            increment,
-            body,
+        self.consume(&Token::For)?;
+        let item = self.parse_identifier()?;
+        self.consume(&Token::In)?;
+        let iterable = self.parse_expression(Precedence::None)?;
+        let body = self.parse_block()?;
+
+        Ok(AstNode::ForInLoop {
+            item,
+            iterable: Box::new(iterable),
+            body: Box::new(AstNode::Block(body)),
         })
     }
 
     /// Parses a guard statement.
     fn parse_guard_statement(&mut self) -> Result<AstNode, String> {
-        self.advance(); // Consume 'guard'
-        let condition = self.parse_expression(Precedence::None)?;
+        self.consume(&Token::Guard)?;
+        let condition = Box::new(self.parse_expression(Precedence::None)?);
         self.consume(&Token::Else)?;
-        let body = self.parse_statement()?;
-        Ok(AstNode::GuardStatement {
-            condition: Box::new(condition),
-            body: Box::new(body),
-        })
+        let body = Box::new(self.parse_statement()?);
+        Ok(AstNode::GuardStatement { condition, body })
     }
 
     /// Parses a return statement.
     fn parse_return_statement(&mut self) -> Result<AstNode, String> {
         self.advance(); // Consume 'return'
-        let value = if !self.check(&Token::Semicolon) {
+        let value = if !self.check(&Token::Semicolon) && !self.check(&Token::RBrace) {
             Some(Box::new(self.parse_expression(Precedence::None)?))
         } else {
             None
         };
-        self.consume(&Token::Semicolon)?;
+        if self.check(&Token::Semicolon) {
+            self.consume(&Token::Semicolon)?;
+        }
         Ok(AstNode::ReturnStatement(value))
     }
 
     /// Parses a block of statements.
     fn parse_block(&mut self) -> Result<Vec<AstNode>, String> {
+        self.consume(&Token::LBrace)?;
         let mut statements = Vec::new();
         while !self.check(&Token::RBrace) && !self.is_at_end() {
             statements.push(self.parse_declaration()?);
         }
+        self.consume(&Token::RBrace)?;
         Ok(statements)
     }
 
     /// Parses an expression.
     fn parse_expression(&mut self, precedence: Precedence) -> Result<AstNode, String> {
-        let mut expr = self.parse_prefix()?;
+        let mut left = self.parse_primary()?;
 
         while precedence < self.get_precedence() {
-            expr = self.parse_infix(expr)?;
+            if self.check(&Token::Semicolon) {
+                break;
+            }
+            left = self.parse_infix(left)?;
         }
 
-        if self.check(&Token::LBrace) {
-            expr = self.finish_trailing_closure(expr)?;
-        }
-
-        Ok(expr)
-    }
-
-    /// Parses a prefix expression.
-    fn parse_prefix(&mut self) -> Result<AstNode, String> {
-        match self.advance() {
-            Some(Token::Identifier(name)) => {
-                if self.check(&Token::LParen) {
-                    self.parse_call(AstNode::Identifier(name))
-                } else {
-                    Ok(AstNode::Identifier(name))
-                }
-            }
-            Some(Token::IntLiteral(value)) => Ok(AstNode::IntLiteral(value)),
-            Some(Token::FloatLiteral(value)) => Ok(AstNode::FloatLiteral(value)),
-            Some(Token::StringLiteral(value)) => Ok(AstNode::StringLiteral(value)),
-            Some(Token::BoolLiteral(value)) => Ok(AstNode::BoolLiteral(value)),
-            Some(Token::LParen) => {
-                let expr = self.parse_expression(Precedence::None)?;
-                self.consume(&Token::RParen)?;
-                Ok(expr)
-            }
-            Some(Token::Minus) => {
-                let right = self.parse_expression(Precedence::Unary)?;
-                Ok(AstNode::UnaryOperation {
-                    operator: UnaryOperator::Negate,
-                    operand: Box::new(right),
-                })
-            }
-            Some(Token::Not) => {
-                let right = self.parse_expression(Precedence::Unary)?;
-                Ok(AstNode::UnaryOperation {
-                    operator: UnaryOperator::Not,
-                    operand: Box::new(right),
-                })
-            }
-            Some(Token::LBracket) => self.parse_array_literal(),
-            token => {
-                Err(format!("Unexpected token in expression: {:?}", token))
-            }
-        }
+        Ok(left)
     }
 
     /// Parses an array literal.
     fn parse_array_literal(&mut self) -> Result<AstNode, String> {
+        self.consume(&Token::LBracket)?;
         let mut elements = Vec::new();
-
         while !self.check(&Token::RBracket) {
             elements.push(self.parse_expression(Precedence::None)?);
-            if !self.check(&Token::RBracket) {
-                self.consume(&Token::Comma)?;
+            if !self.match_token(&Token::Comma) {
+                break;
             }
         }
-
         self.consume(&Token::RBracket)?;
         Ok(AstNode::ArrayLiteral(elements))
     }
@@ -508,18 +532,31 @@ impl Parser {
             Some(Token::And) => self.parse_binary(left, Precedence::And),
             Some(Token::Or) => self.parse_binary(left, Precedence::Or),
             Some(Token::Assign) => self.parse_assignment(left),
-            Some(Token::LParen) => self.parse_call(left),
-            Some(Token::LBrace) => self.finish_trailing_closure(left),
-            Some(Token::Pipeline) => {
-                self.advance();
-                let right = self.parse_expression(Precedence::Pipeline)?;
-                Ok(AstNode::PipelineOperation {
-                    left: Box::new(left),
-                    right: Box::new(right),
-                })
-            }
+            Some(Token::Pipeline) => self.parse_pipeline(left),
+            Some(Token::LParen) => self.parse_function_call(left),
             _ => Ok(left),
         }
+    }
+
+    /// Parses an assignment operation.
+    fn parse_assignment(&mut self, left: AstNode) -> Result<AstNode, String> {
+        self.advance(); // Consume the '=' token
+        let value = self.parse_expression(Precedence::Assignment)?;
+        Ok(AstNode::BinaryOperation {
+            left: Box::new(left),
+            operator: BinaryOperator::Assign,
+            right: Box::new(value),
+        })
+    }
+
+    /// Parses a pipeline operation.
+    fn parse_pipeline(&mut self, left: AstNode) -> Result<AstNode, String> {
+        self.advance(); // Consume the '|>' token
+        let right = self.parse_expression(Precedence::Pipeline)?;
+        Ok(AstNode::PipelineOperation {
+            left: Box::new(left),
+            right: Box::new(right),
+        })
     }
 
     /// Parses a binary operation.
@@ -554,30 +591,10 @@ impl Parser {
         }
     }
 
-    /// Parses an assignment operation.
-    fn parse_assignment(&mut self, left: AstNode) -> Result<AstNode, String> {
-        self.advance(); // Consume the '=' token
-        let value = self.parse_expression(Precedence::Assignment)?;
-        Ok(AstNode::BinaryOperation {
-            left: Box::new(left),
-            operator: BinaryOperator::Assign,
-            right: Box::new(value),
-        })
-    }
-
-    /// Parses a function call.
-    fn parse_call(&mut self, callee: AstNode) -> Result<AstNode, String> {
-        let arguments = self.parse_arguments()?;
-        Ok(AstNode::FunctionCall {
-            callee: Box::new(callee),
-            arguments,
-        })
-    }
-
     /// Parses function arguments.
     fn parse_arguments(&mut self) -> Result<Vec<AstNode>, String> {
-        let mut arguments = Vec::new();
         self.consume(&Token::LParen)?;
+        let mut arguments = Vec::new();
         if !self.check(&Token::RParen) {
             loop {
                 arguments.push(self.parse_expression(Precedence::None)?);
@@ -588,35 +605,6 @@ impl Parser {
         }
         self.consume(&Token::RParen)?;
         Ok(arguments)
-    }
-
-    /// Parses a pipeline operation.
-    fn parse_pipeline(&mut self, left: AstNode) -> Result<AstNode, String> {
-        self.advance(); // Consume the '|>' token
-        let right = self.parse_expression(Precedence::Call)?;
-        Ok(AstNode::PipelineOperation {
-            left: Box::new(left),
-            right: Box::new(right),
-        })
-    }
-
-    /// Finishes parsing a trailing closure.
-    fn finish_trailing_closure(&mut self, callee: AstNode) -> Result<AstNode, String> {
-        self.advance(); // Consume '{'
-        let body = self.parse_block()?;
-        self.consume(&Token::RBrace)?;
-        Ok(AstNode::TrailingClosure {
-            callee: Box::new(callee),
-            closure: Box::new(AstNode::Block(body)),
-        })
-    }
-
-    /// Parses a closure.
-    fn parse_closure(&mut self) -> Result<AstNode, String> {
-        self.consume(&Token::LBrace)?;
-        let body = self.parse_block()?;
-        self.consume(&Token::RBrace)?;
-        Ok(AstNode::Block(body))
     }
 
     /// Gets the precedence of the current token.
@@ -651,15 +639,9 @@ impl Parser {
         while let Some(token) = self.peek() {
             if matches!(
                 token,
-                Token::Semicolon
-                    | Token::Func
-                    | Token::Let
-                    | Token::For
-                    | Token::If
-                    | Token::While
-                    | Token::Return
+                Token::Let | Token::Func | Token::If | Token::While | Token::For | Token::Return
             ) {
-                return;
+                break;
             }
             self.advance();
         }
@@ -680,6 +662,7 @@ pub fn parse(tokens: Vec<Token>) -> Result<AstNode, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lexer::Lexer;
     use crate::lexer::Token;
 
     // Helper function to create a parser from a vector of tokens
@@ -714,17 +697,20 @@ mod tests {
         let tokens = vec![
             Token::Func,
             Token::Identifier("add".to_string()),
+            Token::LBracket,
+            Token::Identifier("T".to_string()),
+            Token::RBracket,
             Token::LParen,
             Token::Identifier("a".to_string()),
             Token::Colon,
-            Token::Identifier("int".to_string()),
+            Token::Identifier("T".to_string()),
             Token::Comma,
             Token::Identifier("b".to_string()),
             Token::Colon,
-            Token::Identifier("int".to_string()),
+            Token::Identifier("T".to_string()),
             Token::RParen,
             Token::Arrow,
-            Token::Identifier("int".to_string()),
+            Token::Identifier("T".to_string()),
             Token::LBrace,
             Token::Return,
             Token::Identifier("a".to_string()),
@@ -735,14 +721,31 @@ mod tests {
         ];
         let mut parser = create_parser(tokens);
         let result = parser.parse_declaration().unwrap();
-        assert!(matches!(result,
+
+        match result {
             AstNode::FunctionDeclaration {
                 name,
+                generic_params,
                 params,
-                return_type: Some(TypeAnnotation::Simple(return_type)),
-                body
-            } if name == "add" && params.len() == 2 && return_type == "int" && body.len() == 1
-        ));
+                return_type,
+                body,
+            } => {
+                assert_eq!(name, "add");
+                assert_eq!(generic_params, Some(vec!["T".to_string()]));
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0].0, "a");
+                assert_eq!(params[1].0, "b");
+                assert!(matches!(&params[0].1, TypeAnnotation::Simple(t) if t == "T"));
+                assert!(matches!(&params[1].1, TypeAnnotation::Simple(t) if t == "T"));
+                assert!(matches!(return_type, Some(TypeAnnotation::Simple(t)) if t == "T"));
+                assert_eq!(body.len(), 1);
+                match &body[0] {
+                    AstNode::ReturnStatement(Some(box AstNode::BinaryOperation { .. })) => {}
+                    _ => panic!("Expected return statement with binary operation"),
+                }
+            }
+            _ => panic!("Expected FunctionDeclaration"),
+        }
     }
 
     #[test]
@@ -806,38 +809,24 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_for_loop() {
-        let tokens = vec![
-            Token::For,
-            Token::LParen,
-            Token::Let,
-            Token::Identifier("i".to_string()),
-            Token::Assign,
-            Token::IntLiteral(0),
-            Token::Semicolon,
-            Token::Identifier("i".to_string()),
-            Token::Lt,
-            Token::IntLiteral(10),
-            Token::Semicolon,
-            Token::Identifier("i".to_string()),
-            Token::Assign,
-            Token::Identifier("i".to_string()),
-            Token::Plus,
-            Token::IntLiteral(1),
-            Token::RParen,
-            Token::LBrace,
-            Token::RBrace,
-        ];
-        let mut parser = create_parser(tokens);
-        let result = parser.parse_statement().unwrap();
-        assert!(matches!(result,
-            AstNode::ForLoop {
-                initializer: Some(box AstNode::VariableDeclaration { .. }),
-                condition: Some(box AstNode::BinaryOperation { .. }),
-                increment: Some(box AstNode::BinaryOperation { .. }),
-                body: box AstNode::Block(_)
-            }
-        ));
+    fn test_parse_for_statement() {
+        let source = "for name in names { print(name); }";
+        let tokens = Lexer::<'_>::tokenize(source).unwrap();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse_statement();
+        assert!(result.is_ok());
+        if let Ok(AstNode::ForInLoop {
+            item,
+            iterable,
+            body,
+        }) = result
+        {
+            assert_eq!(item, "name");
+            assert!(matches!(*iterable, AstNode::Identifier(ref i) if i == "names"));
+            assert!(matches!(*body, AstNode::Block(_)));
+        } else {
+            panic!("Expected ForInLoop, got {:?}", result);
+        }
     }
 
     #[test]
@@ -973,17 +962,34 @@ mod tests {
             Token::Comma,
             Token::IntLiteral(3),
             Token::RBracket,
-            Token::Semicolon,
         ];
         let mut parser = create_parser(tokens);
-        let result = parser.parse_declaration().unwrap();
-        assert!(matches!(result,
-            AstNode::VariableDeclaration {
+        let result = parser.parse().unwrap();
+        if let AstNode::Program(declarations) = &result {
+            assert_eq!(declarations.len(), 1);
+            if let AstNode::VariableDeclaration {
                 name,
-                type_annotation: Some(TypeAnnotation::Generic(base_type, params)),
-                initializer: Some(box AstNode::ArrayLiteral { .. })
-            } if name == "x" && base_type == "Array" && params.len() == 1
-        ));
+                type_annotation,
+                initializer,
+            } = &declarations[0]
+            {
+                assert_eq!(name, "x");
+                if let Some(TypeAnnotation::Generic(base_type, params)) = type_annotation {
+                    assert_eq!(base_type, "Array");
+                    assert_eq!(params.len(), 1);
+                } else {
+                    panic!("Expected Generic type annotation");
+                }
+                assert!(matches!(
+                    initializer,
+                    Some(box AstNode::ArrayLiteral { .. })
+                ));
+            } else {
+                panic!("Expected VariableDeclaration");
+            }
+        } else {
+            panic!("Expected Program");
+        }
     }
 
     #[test]
@@ -1043,6 +1049,7 @@ mod tests {
         assert!(matches!(result,
             AstNode::FunctionDeclaration {
                 name,
+                generic_params: None,
                 params,
                 return_type: Some(TypeAnnotation::Generic(base_type, type_params)),
                 body
@@ -1061,90 +1068,92 @@ mod tests {
             Token::Identifier("y".to_string()),
             Token::Assign,
             Token::IntLiteral(10),
-            Token::Semicolon,
         ];
         let mut parser = Parser::new(tokens);
-        let _result = parser.parse_declaration(); // Prefix with underscore to suppress warning
-        let errors = parser.get_errors();
-        assert_eq!(errors.len(), 1); // Expecting 1 error due to missing semicolon
-        assert_eq!(errors[0], "Expected Semicolon, found Some(Let)");
+        let result = parser.parse();
+        assert!(result.is_ok());
+        if let Ok(AstNode::Program(declarations)) = result {
+            assert_eq!(declarations.len(), 2);
+            match &declarations[0] {
+                AstNode::VariableDeclaration { name, .. } => assert_eq!(name, "x"),
+                _ => panic!("Expected VariableDeclaration for x"),
+            }
+            match &declarations[1] {
+                AstNode::VariableDeclaration { name, .. } => assert_eq!(name, "y"),
+                _ => panic!("Expected VariableDeclaration for y"),
+            }
+        } else {
+            panic!("Expected a Program with two declarations");
+        }
+        assert_eq!(parser.get_errors().len(), 0);
     }
 
     #[test]
     fn test_parse_complex_program() {
-        let tokens = vec![
-            Token::Func,
-            Token::Identifier("processData".to_string()),
-            Token::LParen,
-            Token::Identifier("data".to_string()),
-            Token::Colon,
-            Token::Identifier("Array".to_string()),
-            Token::LBracket,
-            Token::Identifier("int".to_string()),
-            Token::RBracket,
-            Token::RParen,
-            Token::Arrow,
-            Token::Identifier("int".to_string()),
-            Token::LBrace,
-            Token::Let,
-            Token::Identifier("sum".to_string()),
-            Token::Assign,
-            Token::IntLiteral(0),
-            Token::Semicolon,
-            Token::For,
-            Token::LParen,
-            Token::Let,
-            Token::Identifier("i".to_string()),
-            Token::Assign,
-            Token::IntLiteral(0),
-            Token::Semicolon,
-            Token::Identifier("i".to_string()),
-            Token::Lt,
-            Token::Identifier("data".to_string()),
-            Token::Dot,
-            Token::Identifier("length".to_string()),
-            Token::Semicolon,
-            Token::Identifier("i".to_string()),
-            Token::Assign,
-            Token::Identifier("i".to_string()),
-            Token::Plus,
-            Token::IntLiteral(1),
-            Token::RParen,
-            Token::LBrace,
-            Token::If,
-            Token::LParen,
-            Token::Identifier("data".to_string()),
-            Token::LBracket,
-            Token::Identifier("i".to_string()),
-            Token::RBracket,
-            Token::Gt,
-            Token::IntLiteral(0),
-            Token::RParen,
-            Token::LBrace,
-            Token::Identifier("sum".to_string()),
-            Token::Assign,
-            Token::Identifier("sum".to_string()),
-            Token::Plus,
-            Token::Identifier("data".to_string()),
-            Token::LBracket,
-            Token::Identifier("i".to_string()),
-            Token::RBracket,
-            Token::Semicolon,
-            Token::RBrace,
-            Token::RBrace,
-            Token::Return,
-            Token::Identifier("sum".to_string()),
-            Token::Semicolon,
-            Token::RBrace,
-        ];
-        let mut parser = create_parser(tokens);
+        let source = r#"
+        func processData[T](data: Array[T], predicate: func(T) -> bool) -> int {
+            let mut sum = 0
+            for value in data {
+                if predicate(value) {
+                    sum = sum + 1
+                }
+            }
+            return sum
+        }
+
+        func main() {
+            let numbers = [1, 2, 3, 4, 5]
+            let result = processData[int](numbers) { value in
+                value % 2 == 0
+            }
+            print("Even numbers count: \(result)")
+        }
+        "#;
+        let tokens = Lexer::<'_>::tokenize(source).unwrap();
+        let mut parser = Parser::new(tokens);
         let result = parser.parse();
+
         assert!(result.is_ok());
-        if let Ok(AstNode::Program(statements)) = result {
-            assert_eq!(statements.len(), 1);
-            assert!(matches!(statements[0], AstNode::FunctionDeclaration { .. }));
+        if let Ok(AstNode::Program(declarations)) = result {
+            assert_eq!(declarations.len(), 2);
+
+            // Check processData function
+            if let AstNode::FunctionDeclaration {
+                name,
+                generic_params,
+                params,
+                return_type,
+                body,
+            } = &declarations[0]
+            {
+                assert_eq!(name, "processData");
+                assert_eq!(generic_params, &Some(vec!["T".to_string()]));
+                assert_eq!(params.len(), 2);
+                assert!(matches!(return_type, Some(TypeAnnotation::Simple(t)) if t == "int"));
+                assert!(!body.is_empty());
+            } else {
+                panic!("Expected FunctionDeclaration for processData");
+            }
+
+            // Check main function
+            if let AstNode::FunctionDeclaration {
+                name,
+                generic_params,
+                params,
+                return_type,
+                body,
+            } = &declarations[1]
+            {
+                assert_eq!(name, "main");
+                assert_eq!(generic_params, &None);
+                assert!(params.is_empty());
+                assert_eq!(return_type, &None);
+                assert!(!body.is_empty());
+            } else {
+                panic!("Expected FunctionDeclaration for main");
+            }
         } else {
-            panic!("Expected Program node");
+            panic!("Expected Program AST node");
         }
     }
 }
