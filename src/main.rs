@@ -1,13 +1,16 @@
 #![feature(box_patterns)]
 
+mod error;
 mod lexer;
 mod parser;
 
+use crate::error::CompilerError;
 use crate::lexer::Lexer;
 use std::env;
+use std::error::Error;
 use std::fs;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         eprintln!("Usage: {} <filename>", args[0]);
@@ -17,8 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filename = &args[1];
     let source = fs::read_to_string(filename)?;
 
-    let tokens = Lexer::<'_>::tokenize(&source)?;
-    let ast = parser::parse(tokens)?;
+    let tokens = Lexer::<'_>::tokenize(&source).map_err(CompilerError::LexerError)?;
+    let ast = parser::parse(tokens).map_err(CompilerError::ParserError)?;
 
     println!("AST: {:?}", ast);
 
