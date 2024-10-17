@@ -70,6 +70,7 @@ pub enum Token {
     Colon,
     Arrow,
     Semicolon,
+    Newline,
 
     // Special
     Eof,
@@ -114,10 +115,11 @@ impl<'a> Lexer<'a> {
     /// Skips over any whitespace characters in the input.
     fn skip_whitespace(&mut self) {
         while let Some(&c) = self.peek() {
-            if !c.is_whitespace() {
+            if c.is_whitespace() && c != '\n' {
+                self.advance();
+            } else {
                 break;
             }
-            self.advance();
         }
     }
 
@@ -302,6 +304,7 @@ impl<'a> Lexer<'a> {
                 '.' => Ok(Token::Dot),
                 ':' => Ok(Token::Colon),
                 ';' => Ok(Token::Semicolon),
+                '\n' => Ok(Token::Newline),
                 _ => Err(LexerError::UnexpectedChar(c)),
             },
             None => Ok(Token::Eof),
@@ -601,8 +604,8 @@ mod tests {
 
     #[test]
     fn test_delimiters() {
-        let input = "(a, b) { [c] } : ; .";
-        let tokens = Lexer::<'_>::tokenize(input).unwrap();
+        let input = "(a, b) { [c] } : ; . \n";
+        let tokens = Lexer::tokenize(input).unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -619,9 +622,46 @@ mod tests {
                 Token::Colon,
                 Token::Semicolon,
                 Token::Dot,
+                Token::Newline,
                 Token::Eof
             ]
         );
+    }
+
+    #[test]
+    fn test_newline_tokenization() {
+        let input = "let x = 5\nlet y = 10\n\nfunc test() {\n    print(x + y)\n}\n";
+        let tokens = Lexer::tokenize(input).unwrap();
+        let expected_tokens = vec![
+            Token::Let,
+            Token::Identifier("x".to_string()),
+            Token::Assign,
+            Token::IntLiteral(5),
+            Token::Newline,
+            Token::Let,
+            Token::Identifier("y".to_string()),
+            Token::Assign,
+            Token::IntLiteral(10),
+            Token::Newline,
+            Token::Newline,
+            Token::Func,
+            Token::Identifier("test".to_string()),
+            Token::LParen,
+            Token::RParen,
+            Token::LBrace,
+            Token::Newline,
+            Token::Identifier("print".to_string()),
+            Token::LParen,
+            Token::Identifier("x".to_string()),
+            Token::Plus,
+            Token::Identifier("y".to_string()),
+            Token::RParen,
+            Token::Newline,
+            Token::RBrace,
+            Token::Newline,
+            Token::Eof,
+        ];
+        assert_eq!(tokens, expected_tokens);
     }
 
     #[test]
