@@ -8,8 +8,13 @@ license = "MPL-2.0"
 readme = "README.md"
 repository = "https://github.com/ovnanova/alloy"
 
+[[test]]
+name = "integration_tests"
+path = "tests/integration_tests.rs"
+
 [dependencies]
-# No external dependencies!
+miette = "7.2.0"
+owo-colors = "4.1.0"
 
 [[bin]]
 name = "alloy"
