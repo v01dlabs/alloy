@@ -200,6 +200,44 @@ impl Parser {
             ))
         }
     }
+    
+    fn consume_if(&mut self, expected: &Token) {
+        if self.check(expected) {
+            self.advance();
+        }
+    }
+
+    /// Consumes the next token if it matches either of the given tokens.
+    fn consume_either(&mut self, first: &Token, second: &Token) -> Result<(), ParserError> {
+        if self.check(first) {
+            self.consume(first)
+        } else if self.check(second) {
+            self.consume(second)
+        } else {
+            Err(ParserError::ExpectedToken(
+                format!("{:?} or {:?}", first, second),
+                self.peek()
+                    .map_or("end of input".to_string(), |t| format!("{:?}", t)),
+            ))
+        }
+    }
+
+    /// Consumes the next token if it matches either of the given tokens.
+    fn consume_any(&mut self, first: &Token, second: &Token, third: &Token) -> Result<(), ParserError> {
+        if self.check(first) {
+            self.consume(first)
+        } else if self.check(second) {
+            self.consume(second)
+        } else if self.check(third) {
+            self.consume(third)
+        } else {
+            Err(ParserError::ExpectedToken(
+                format!("{:?} or {:?}", first, second),
+                self.peek()
+                    .map_or("end of input".to_string(), |t| format!("{:?}", t)),
+            ))
+        }
+    }
 
     /// Parses the entire program.
     pub fn parse(&mut self) -> Result<AstNode, ParserError> {
@@ -268,9 +306,7 @@ impl Parser {
         }
 
         // Consume the newline if present
-        if let Some(&Token::Newline) = self.peek() {
-            self.advance();
-        }
+        self.consume_if(&Token::Newline);
 
         declaration
     }
@@ -311,9 +347,8 @@ impl Parser {
 
     fn parse_function_call(&mut self, callee: AstNode) -> Result<AstNode, ParserError> {
         let arguments = self.parse_arguments()?;
-
         if self.check(&Token::LBrace) {
-            let closure = self.parse_trailing_closure()?;
+            let closure = self.finish_trailing_closure()?;
             Ok(AstNode::TrailingClosure {
                 callee: Box::new(AstNode::FunctionCall {
                     callee: Box::new(callee),
@@ -330,8 +365,7 @@ impl Parser {
     }
 
     /// Finishes parsing a trailing closure.
-    fn parse_trailing_closure(&mut self) -> Result<AstNode, ParserError> {
-        self.consume(&Token::LBrace)?;
+    fn finish_trailing_closure(&mut self) -> Result<AstNode, ParserError> {
         let body = self.parse_block()?;
         Ok(AstNode::Block(body))
     }
@@ -406,6 +440,8 @@ impl Parser {
         })
     }
 
+    
+
     /// Parses a statement.
     pub fn parse_statement(&mut self) -> Result<AstNode, ParserError> {
         match self.peek() {
@@ -416,7 +452,7 @@ impl Parser {
             Some(Token::Return) => self.parse_return_statement(),
             Some(Token::LBrace) => Ok(AstNode::Block(self.parse_block()?)),
             _ => self.parse_expression(Precedence::None).and_then(|expr| {
-                self.consume(&Token::Semicolon)?;
+                self.consume_if(&Token::Semicolon);
                 Ok(expr)
             }),
         }
@@ -461,7 +497,6 @@ impl Parser {
         self.consume(&Token::In)?;
         let iterable = self.parse_expression(Precedence::None)?;
         let body = self.parse_block()?;
-
         Ok(AstNode::ForInLoop {
             item,
             iterable: Box::new(iterable),
@@ -486,9 +521,7 @@ impl Parser {
         } else {
             None
         };
-        if self.check(&Token::Semicolon) {
-            self.consume(&Token::Semicolon)?;
-        }
+        self.consume_if(&Token::Semicolon);
         Ok(AstNode::ReturnStatement(value))
     }
 
@@ -503,6 +536,28 @@ impl Parser {
         Ok(statements)
     }
 
+    fn parse_trailing_closure(&mut self, callee: AstNode) -> Result<AstNode, ParserError> {  
+        self.consume(&Token::Pipe)?;
+        let mut arguments = Vec::new();
+        if !self.check(&Token::Pipe) {
+            loop {
+                arguments.push(self.parse_expression(Precedence::None)?);
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(&Token::Pipe)?;
+        let closure = self.finish_trailing_closure()?;
+        Ok(AstNode::TrailingClosure {
+            callee: Box::new(AstNode::FunctionCall {
+                callee: Box::new(callee),
+                arguments,
+            }),
+            closure: Box::new(closure),
+        })
+    }
+
     /// Parses an expression.
     pub fn parse_expression(&mut self, precedence: Precedence) -> Result<AstNode, ParserError> {
         let mut left = self.parse_primary()?;
@@ -515,12 +570,8 @@ impl Parser {
         }
 
         // Check for trailing closure
-        if self.check(&Token::LBrace) {
-            let closure = self.parse_block()?;
-            left = AstNode::TrailingClosure {
-                callee: Box::new(left),
-                closure: Box::new(AstNode::Block(closure)),
-            };
+        if self.check(&Token::Pipe) {
+            left = self.parse_trailing_closure(left)?;
         }
 
         Ok(left)

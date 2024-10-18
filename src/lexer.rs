@@ -66,6 +66,7 @@ pub enum Token {
     RBrace,
     LBracket,
     RBracket,
+    Pipe,
     Comma,
     Dot,
     Colon,
@@ -228,10 +229,10 @@ impl<'a> Lexer<'a> {
             "in" => Token::In,
             "async" => Token::Async,
             "await" => Token::Await,
-            "int" => Token::Int,
-            "float" => Token::Float,
-            "string" => Token::String,
-            "bool" => Token::Bool,
+            // "int" => Token::Int,
+            // "float" => Token::Float,
+            // "string" => Token::String,
+            // "bool" => Token::Bool,
             "true" => Token::BoolLiteral(true),
             "false" => Token::BoolLiteral(false),
             "match" => Token::Match,
@@ -323,10 +324,8 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         Ok(Token::Or)
                     } else {
-                        Err(LexerError::UnexpectedChar(
-                            '|',
-                            LexerError::to_miette_span(&self.loc()),
-                        ))
+                        self.advance();
+                        Ok(Token::Pipe)
                     }
                 }
                 '(' => Ok(Token::LParen),
