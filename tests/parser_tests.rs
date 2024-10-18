@@ -27,6 +27,7 @@ fn test_parse_variable_declaration() {
     assert!(matches!(result,
         AstNode::VariableDeclaration {
             name,
+            mutable: _,    
             type_annotation: Some(TypeAnnotation::Simple(type_name)),
             initializer: Some(box AstNode::IntLiteral(5))
         } if name == "x" && type_name == "int"
@@ -169,7 +170,7 @@ fn test_parse_while_loop() {
     ];
     let mut parser = create_parser(tokens);
     let result = parser.parse_statement();
-    assert!(result.is_ok(), "Failed to parse while loop: {:?}", result);
+    assert!(result.is_ok(), "Failed to parse while loop: {}", result.unwrap_err());
     if let Ok(AstNode::WhileLoop { condition, body }) = result {
         assert!(matches!(*condition, AstNode::BinaryOperation { .. }));
         assert!(matches!(*body, AstNode::Block(statements) if statements.len() == 1));
@@ -186,8 +187,8 @@ fn test_parse_for_statement() {
     let result = parser.parse_statement();
     assert!(
         result.is_ok(),
-        "Failed to parse for statement: {:?}",
-        result
+        "Failed to parse for statement: {}",
+        result.unwrap_err()
     );
     if let Ok(AstNode::ForInLoop {
         item,
@@ -235,8 +236,8 @@ fn test_parse_trailing_closure() {
     let result = parser.parse_expression(Precedence::None);
     assert!(
         result.is_ok(),
-        "Failed to parse trailing closure: {:?}",
-        result
+        "Failed to parse trailing closure: {}",
+        result.unwrap_err()
     );
     if let Ok(AstNode::TrailingClosure { callee, closure }) = result {
         assert!(matches!(*callee, AstNode::FunctionCall { .. }));
@@ -323,11 +324,12 @@ fn test_parse_generic_type_annotation() {
     let result = parser.parse_declaration();
     assert!(
         result.is_ok(),
-        "Failed to parse generic type annotation: {:?}",
-        result
+        "Failed to parse generic type annotation: {}",
+        result.unwrap_err()
     );
     if let Ok(AstNode::VariableDeclaration {
         name,
+        mutable: _,    
         type_annotation,
         initializer,
     }) = result
@@ -338,7 +340,7 @@ fn test_parse_generic_type_annotation() {
         );
         assert!(matches!(initializer, Some(box AstNode::ArrayLiteral(..))));
     } else {
-        panic!("Expected VariableDeclaration, got {:?}", result);
+        panic!("Expected VariableDeclaration, got {}", result.unwrap_err());
     }
 }
 
@@ -364,6 +366,7 @@ fn test_parse_nested_generic_type_annotation() {
     assert!(matches!(result,
         AstNode::VariableDeclaration {
             name,
+            mutable: _,    
             type_annotation: Some(TypeAnnotation::Generic(base_type, params)),
             initializer: None
         } if name == "x" && base_type == "Map" && params.len() == 2
@@ -378,8 +381,8 @@ fn test_parse_function_with_generic_return_type() {
     let result = parser.parse_declaration();
     assert!(
         result.is_ok(),
-        "Failed to parse function with generic return type: {:?}",
-        result
+        "Failed to parse function with generic return type: {}",
+        result.unwrap_err()
     );
     if let Ok(AstNode::FunctionDeclaration {
         name,

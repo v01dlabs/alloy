@@ -4,7 +4,7 @@ use alloy::parser::{AstNode, Parser};
 #[test]
 fn test_parse_complex_program() {
     let source = r#"
-        fn processData[T](data: Array[T], predicate: (T) -> bool) -> int {
+        fn processData[T](data: Array[T], predicate: |T| -> bool) -> int {
             let mut sum = 0
             for value in data {
                 if predicate(value) {
@@ -28,8 +28,8 @@ fn test_parse_complex_program() {
 
     assert!(
         result.is_ok(),
-        "Failed to parse complex program: {:?}",
-        result
+        "Failed to parse complex program: {}",
+        result.unwrap_err()
     );
     if let Ok(AstNode::Program(declarations)) = result {
         assert_eq!(

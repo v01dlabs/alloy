@@ -57,6 +57,7 @@ pub enum AstNode {
     },
     VariableDeclaration {
         name: String,
+        mutable: bool,
         type_annotation: Option<TypeAnnotation>,
         initializer: Option<Box<AstNode>>,
     },
@@ -119,6 +120,7 @@ pub enum AstNode {
 pub enum TypeAnnotation {
     Simple(String),
     Generic(String, Vec<TypeAnnotation>),
+    Function(Vec<TypeAnnotation>, Option<Box<TypeAnnotation>>),
 }
 
 /// Represents binary operators in Alloy.
@@ -179,7 +181,7 @@ impl Parser {
     }
 
     /// Consumes the next token if it matches the expected token.
-    fn match_token(&mut self, expected: &Token) -> bool {
+    fn consume_if(&mut self, expected: &Token) -> bool {
         if self.check(expected) {
             self.advance();
             true
@@ -190,7 +192,7 @@ impl Parser {
 
     /// Consumes the expected token or returns an error.
     fn consume(&mut self, expected: &Token) -> Result<(), ParserError> {
-        if self.match_token(expected) {
+        if self.consume_if(expected) {
             Ok(())
         } else {
             Err(ParserError::ExpectedToken(
@@ -201,11 +203,6 @@ impl Parser {
         }
     }
     
-    fn consume_if(&mut self, expected: &Token) {
-        if self.check(expected) {
-            self.advance();
-        }
-    }
 
     /// Consumes the next token if it matches either of the given tokens.
     fn consume_either(&mut self, first: &Token, second: &Token) -> Result<(), ParserError> {
@@ -244,7 +241,7 @@ impl Parser {
         let mut declarations = Vec::new();
         while !self.is_at_end() {
             // Skip any leading newlines
-            while self.match_token(&Token::Newline) {}
+            while self.consume_if(&Token::Newline) {}
 
             if !self.is_at_end() {
                 match self.parse_declaration() {
@@ -254,7 +251,7 @@ impl Parser {
             }
 
             // Skip any trailing newlines
-            while self.match_token(&Token::Newline) {}
+            while self.consume_if(&Token::Newline) {}
         }
         if declarations.is_empty() {
             Err(ParserError::InvalidExpression)
@@ -283,8 +280,8 @@ impl Parser {
                 Ok(expr)
             }
             Some(Token::LBracket) => self.parse_array_literal(),
-            _ => Err(ParserError::UnexpectedToken(
-                "Unexpected token in primary expression".to_string(),
+            t => Err(ParserError::UnexpectedToken(
+                format!("in primary expression: {:?}", t),
             )),
         }
     }
@@ -298,7 +295,7 @@ impl Parser {
         };
 
         // Check if the declaration is followed by a newline or EOF
-        if !matches!(self.peek(), Some(&Token::Newline) | None) {
+        if !matches!(self.peek(), Some(&Token::Newline) | None | Some(&Token::Eof)) {   
             return Err(ParserError::ExpectedToken(
                 "newline".to_string(),
                 format!("{:?}", self.peek().unwrap_or(&Token::Eof)),
@@ -316,7 +313,7 @@ impl Parser {
         self.consume(&Token::Fn)?;
         let name = self.parse_identifier()?;
 
-        let generic_params = if self.match_token(&Token::LBracket) {
+        let generic_params = if self.consume_if(&Token::LBracket) {
             let params = self.parse_generic_params()?;
             self.consume(&Token::RBracket)?;
             Some(params)
@@ -328,12 +325,12 @@ impl Parser {
         let params = self.parse_parameters()?;
         self.consume(&Token::RParen)?;
 
-        let return_type = if self.match_token(&Token::Arrow) {
+        let return_type = if self.consume_if(&Token::Arrow) {
             Some(self.parse_type_annotation()?)
         } else {
             None
         };
-
+        println!("{}({:?}) -> {:?}", name, params, return_type);
         let body = self.parse_block()?;
 
         Ok(AstNode::FunctionDeclaration {
@@ -375,7 +372,7 @@ impl Parser {
         let mut params = Vec::new();
         while !self.check(&Token::RBracket) {
             params.push(self.parse_identifier()?);
-            if !self.match_token(&Token::Comma) {
+            if !self.consume_if(&Token::Comma) {
                 break;
             }
         }
@@ -391,7 +388,7 @@ impl Parser {
                 self.consume(&Token::Colon)?;
                 let type_annotation = self.parse_type_annotation()?;
                 params.push((name, type_annotation));
-                if !self.match_token(&Token::Comma) {
+                if !self.consume_if(&Token::Comma) {
                     break;
                 }
             }
@@ -401,12 +398,29 @@ impl Parser {
 
     /// Parses type annotations.
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, ParserError> {
+        if self.consume_if(&Token::Pipe) {
+            let mut params = Vec::new();
+            loop {
+                if self.check(&Token::Pipe) {
+                    break;
+                }
+                params.push(self.parse_type_annotation()?);
+                if !self.consume_if(&Token::Comma) {
+                    break;
+                }
+            }
+            self.consume(&Token::Pipe)?;
+            let return_type = if self.consume_if(&Token::Arrow) {
+                Some(Box::new(self.parse_type_annotation()?))
+            } else { None };
+            return Ok(TypeAnnotation::Function(params, return_type));   
+        }
         let base_type = self.parse_identifier()?;
-        if self.match_token(&Token::LBracket) {
+        if self.consume_if(&Token::LBracket) {
             let mut params = Vec::new();
             loop {
                 params.push(self.parse_type_annotation()?);
-                if !self.match_token(&Token::Comma) {
+                if !self.consume_if(&Token::Comma) {
                     break;
                 }
             }
@@ -420,21 +434,23 @@ impl Parser {
     /// Parses a variable declaration.
     fn parse_variable_declaration(&mut self) -> Result<AstNode, ParserError> {
         self.consume(&Token::Let)?;
+        let mutable = self.consume_if(&Token::Mut);
         let name = self.parse_identifier()?;
-        let type_annotation = if self.match_token(&Token::Colon) {
+        let type_annotation = if self.consume_if(&Token::Colon) {
             Some(self.parse_type_annotation()?)
         } else {
             None
         };
-        let initializer = if self.match_token(&Token::Assign) {
+        let initializer = if self.consume_if(&Token::Assign) {
             Some(Box::new(self.parse_expression(Precedence::None)?))
         } else {
             None
         };
         // Consume the semicolon if present, but don't require it
-        self.match_token(&Token::Semicolon);
+        self.consume_if(&Token::Semicolon);
         Ok(AstNode::VariableDeclaration {
             name,
+            mutable,
             type_annotation,
             initializer,
         })
@@ -444,6 +460,8 @@ impl Parser {
 
     /// Parses a statement.
     pub fn parse_statement(&mut self) -> Result<AstNode, ParserError> {
+        // Skip any leading newlines
+        while self.consume_if(&Token::Newline) {}
         match self.peek() {
             Some(Token::If) => self.parse_if_statement(),
             Some(Token::While) => self.parse_while_statement(),
@@ -451,6 +469,7 @@ impl Parser {
             Some(Token::Guard) => self.parse_guard_statement(),
             Some(Token::Return) => self.parse_return_statement(),
             Some(Token::LBrace) => Ok(AstNode::Block(self.parse_block()?)),
+            Some(Token::Let) => self.parse_variable_declaration(),
             _ => self.parse_expression(Precedence::None).and_then(|expr| {
                 self.consume_if(&Token::Semicolon);
                 Ok(expr)
@@ -461,12 +480,14 @@ impl Parser {
     /// Parses an if statement.
     fn parse_if_statement(&mut self) -> Result<AstNode, ParserError> {
         self.advance(); // Consume 'if'
-        self.consume(&Token::LParen)?;
+        let paren = self.consume_if(&Token::LParen);
         let condition = self.parse_expression(Precedence::None)?;
-        self.consume(&Token::RParen)?;
-        let then_branch = self.parse_statement()?;
-        let else_branch = if self.match_token(&Token::Else) {
-            Some(Box::new(self.parse_statement()?))
+        if paren {
+            self.consume(&Token::RParen)?;
+        }
+        let then_branch = self.parse_statement_or_block()?;
+        let else_branch = if self.consume_if(&Token::Else) {
+            Some(Box::new(self.parse_statement_or_block()?))
         } else {
             None
         };
@@ -525,13 +546,31 @@ impl Parser {
         Ok(AstNode::ReturnStatement(value))
     }
 
+    fn parse_statement_or_block(&mut self) -> Result<AstNode, ParserError> {
+        if self.check(&Token::LBrace) {
+            Ok(AstNode::Block(self.parse_block()?))
+        } else {
+            Ok(self.parse_statement()?)
+        }
+    }
+
     /// Parses a block of statements.
     fn parse_block(&mut self) -> Result<Vec<AstNode>, ParserError> {
         self.consume(&Token::LBrace)?;
+
         let mut statements = Vec::new();
         while !self.check(&Token::RBrace) && !self.is_at_end() {
+            // Skip any leading newlines
+            while self.consume_if(&Token::Newline) {}
+            if self.check(&Token::RBrace) { break; }
             statements.push(self.parse_statement()?);
+
         }
+        println!("{:?}", statements);
+
+        // Skip any trailing newlines
+        while self.consume_if(&Token::Newline) {}
+
         self.consume(&Token::RBrace)?;
         Ok(statements)
     }
@@ -542,7 +581,7 @@ impl Parser {
         if !self.check(&Token::Pipe) {
             loop {
                 arguments.push(self.parse_expression(Precedence::None)?);
-                if !self.match_token(&Token::Comma) {
+                if !self.consume_if(&Token::Comma) {
                     break;
                 }
             }
@@ -563,7 +602,7 @@ impl Parser {
         let mut left = self.parse_primary()?;
 
         while precedence < self.get_precedence() {
-            if self.check(&Token::Semicolon) {
+            if self.check(&Token::Semicolon) || self.is_at_end() {
                 break;
             }
             left = self.parse_infix(left)?;
@@ -579,14 +618,15 @@ impl Parser {
 
     /// Parses an array literal.
     fn parse_array_literal(&mut self) -> Result<AstNode, ParserError> {
-        self.consume(&Token::LBracket)?;
         let mut elements = Vec::new();
         while !self.check(&Token::RBracket) {
             elements.push(self.parse_expression(Precedence::None)?);
-            if !self.match_token(&Token::Comma) {
+            
+            if !self.consume_if(&Token::Comma) {
                 break;
             }
         }
+        println!("{:?}", elements);
         self.consume(&Token::RBracket)?;
         Ok(AstNode::ArrayLiteral(elements))
     }
@@ -680,7 +720,7 @@ impl Parser {
         if !self.check(&Token::RParen) {
             loop {
                 arguments.push(self.parse_expression(Precedence::None)?);
-                if !self.match_token(&Token::Comma) {
+                if !self.consume_if(&Token::Comma) {
                     break;
                 }
             }
