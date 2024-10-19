@@ -4,6 +4,8 @@
 //! on the Abstract Syntax Tree (AST) produced by the parser. It ensures that
 //! the program is well-typed according to Alloy's type system.
 
+use thin_vec::ThinVec;
+
 use crate::parser::{AstNode, BinaryOperator, TypeAnnotation, UnaryOperator};
 use std::collections::HashMap;
 
@@ -15,7 +17,7 @@ pub enum Type {
     String,
     Bool,
     Array(Box<Type>),
-    Function(Vec<Type>, Box<Type>),
+    Function(ThinVec<Type>, Box<Type>),
     Void,
     Unknown,
 }
@@ -91,7 +93,7 @@ impl TypeChecker {
                 return_type,
                 body,
             } => {
-                let param_types: Vec<Type> = params
+                let param_types: ThinVec<Type> = params
                     .iter()
                     .map(|(_, type_ann)| self.annotation_to_type(type_ann))
                     .collect();
