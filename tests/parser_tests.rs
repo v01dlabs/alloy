@@ -3,7 +3,8 @@
 use alloy::{
     error::ParserError,
     lexer::{Lexer, Token},
-    parser::{AstNode, BinaryOperator, Parser, Precedence, TypeAnnotation},
+    parser::Parser,
+    ast::{AstNode, BinaryOperator, Precedence, TypeAnnotation},
 };
 use thin_vec::thin_vec;
 

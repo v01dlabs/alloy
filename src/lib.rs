@@ -3,6 +3,7 @@ pub mod lexer;
 pub mod ast;
 pub mod parser;
 pub mod type_checker;
+pub mod ty;
 
 
 pub use lexer::Lexer;

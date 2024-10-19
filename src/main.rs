@@ -4,6 +4,8 @@ mod error;
 mod lexer;
 mod parser;
 mod type_checker;
+mod ast;
+mod ty;
 
 use crate::error::CompilerError;
 use crate::lexer::Lexer;
