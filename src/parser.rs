@@ -4,6 +4,8 @@
 //! and constructing an Abstract Syntax Tree (AST) that represents the structure
 //! of an Alloy program.
 
+use thin_vec::ThinVec;
+
 use crate::error::ParserError;
 use crate::lexer::Token;
 use std::iter::Peekable;
@@ -50,10 +52,10 @@ pub enum AstNode {
     Program(Vec<AstNode>),
     FunctionDeclaration {
         name: String,
-        generic_params: Option<Vec<String>>,
-        params: Vec<(String, TypeAnnotation)>,
+        generic_params: Option<ThinVec<String>>,
+        params: ThinVec<(String, TypeAnnotation)>,
         return_type: Option<TypeAnnotation>,
-        body: Vec<AstNode>,
+        body: ThinVec<AstNode>,
     },
     VariableDeclaration {
         name: String,
@@ -80,7 +82,7 @@ pub enum AstNode {
         body: Box<AstNode>,
     },
     ReturnStatement(Option<Box<AstNode>>),
-    Block(Vec<AstNode>),
+    Block(ThinVec<AstNode>),
     BinaryOperation {
         left: Box<AstNode>,
         operator: BinaryOperator,
@@ -92,12 +94,12 @@ pub enum AstNode {
     },
     FunctionCall {
         callee: Box<AstNode>,
-        arguments: Vec<AstNode>,
+        arguments: ThinVec<AstNode>,
     },
     GenericFunctionCall {
         name: String,
-        generic_args: Vec<TypeAnnotation>,
-        arguments: Vec<AstNode>,
+        generic_args: ThinVec<TypeAnnotation>,
+        arguments: ThinVec<AstNode>,
     },
     TrailingClosure {
         callee: Box<AstNode>,
@@ -112,15 +114,15 @@ pub enum AstNode {
     FloatLiteral(f64),
     StringLiteral(String),
     BoolLiteral(bool),
-    ArrayLiteral(Vec<AstNode>),
+    ArrayLiteral(ThinVec<AstNode>),
 }
 
 /// Represents the type annotations in Alloy.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
     Simple(String),
-    Generic(String, Vec<TypeAnnotation>),
-    Function(Vec<TypeAnnotation>, Option<Box<TypeAnnotation>>),
+    Generic(String, ThinVec<TypeAnnotation>),
+    Function(ThinVec<TypeAnnotation>, Option<Box<TypeAnnotation>>),
     Int,
     Float,
     String,
@@ -382,8 +384,8 @@ impl Parser {
     }
 
     // Helper method to parse generic parameters
-    fn parse_generic_params(&mut self) -> Result<Vec<String>, ParserError> {
-        let mut params = Vec::new();
+    fn parse_generic_params(&mut self) -> Result<ThinVec<String>, ParserError> {
+        let mut params = ThinVec::new();
         while !self.check(&Token::RBracket) {
             params.push(self.parse_identifier()?);
             if !self.consume_if(&Token::Comma) {
@@ -394,8 +396,8 @@ impl Parser {
     }
 
     // Helper method to parse function parameters
-    fn parse_parameters(&mut self) -> Result<Vec<(String, TypeAnnotation)>, ParserError> {
-        let mut params = Vec::new();
+    fn parse_parameters(&mut self) -> Result<ThinVec<(String, TypeAnnotation)>, ParserError> {
+        let mut params = ThinVec::new();
         if !self.check(&Token::RParen) {
             loop {
                 let name = self.parse_identifier()?;
@@ -413,7 +415,7 @@ impl Parser {
     /// Parses type annotations.
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, ParserError> {
         if self.consume_if(&Token::Pipe) {
-            let mut params = Vec::new();
+            let mut params = ThinVec::new();
             loop {
                 if self.check(&Token::Pipe) {
                     break;
@@ -433,7 +435,7 @@ impl Parser {
         }
         let base_type = self.parse_identifier()?;
         if self.consume_if(&Token::LBracket) {
-            let mut params = Vec::new();
+            let mut params = ThinVec::new();
             loop {
                 params.push(self.parse_type_annotation()?);
                 if !self.consume_if(&Token::Comma) {
@@ -569,10 +571,10 @@ impl Parser {
     }
 
     /// Parses a block of statements.
-    fn parse_block(&mut self) -> Result<Vec<AstNode>, ParserError> {
+    fn parse_block(&mut self) -> Result<ThinVec<AstNode>, ParserError> {
         self.consume(&Token::LBrace)?;
 
-        let mut statements = Vec::new();
+        let mut statements = ThinVec::new();
         while !self.check(&Token::RBrace) && !self.is_at_end() {
             // Skip any leading newlines
             while self.consume_if(&Token::Newline) {}
@@ -592,7 +594,7 @@ impl Parser {
 
     fn parse_trailing_closure(&mut self, callee: AstNode) -> Result<AstNode, ParserError> {
         self.consume(&Token::Pipe)?;
-        let mut arguments = Vec::new();
+        let mut arguments = ThinVec::new();
         if !self.check(&Token::Pipe) {
             loop {
                 arguments.push(self.parse_expression(Precedence::None)?);
@@ -633,7 +635,7 @@ impl Parser {
 
     /// Parses an array literal.
     fn parse_array_literal(&mut self) -> Result<AstNode, ParserError> {
-        let mut elements = Vec::new();
+        let mut elements = ThinVec::new();
         while !self.check(&Token::RBracket) {
             elements.push(self.parse_expression(Precedence::None)?);
 
@@ -729,9 +731,9 @@ impl Parser {
     }
 
     /// Parses function arguments.
-    fn parse_arguments(&mut self) -> Result<Vec<AstNode>, ParserError> {
+    fn parse_arguments(&mut self) -> Result<ThinVec<AstNode>, ParserError> {
         self.consume(&Token::LParen)?;
-        let mut arguments = Vec::new();
+        let mut arguments = ThinVec::new();
         if !self.check(&Token::RParen) {
             loop {
                 arguments.push(self.parse_expression(Precedence::None)?);

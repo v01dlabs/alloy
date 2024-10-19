@@ -5,6 +5,7 @@ use alloy::{
     lexer::{Lexer, Token},
     parser::{AstNode, BinaryOperator, Parser, Precedence, TypeAnnotation},
 };
+use thin_vec::thin_vec;
 
 // Helper function to create a parser from a vector of tokens
 fn create_parser(tokens: Vec<Token>) -> Parser {
@@ -73,7 +74,7 @@ fn test_parse_function_declaration() {
             body,
         } => {
             assert_eq!(name, "add");
-            assert_eq!(generic_params, Some(vec!["T".to_string()]));
+            assert_eq!(generic_params, Some(thin_vec!["T".to_string()]));
             assert_eq!(params.len(), 2);
             assert_eq!(params[0].0, "a");
             assert_eq!(params[1].0, "b");
