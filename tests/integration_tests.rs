@@ -1,5 +1,6 @@
-use alloy::lexer::Lexer;
 use alloy::parser::{AstNode, Parser};
+use alloy::type_checker::typecheck;
+use alloy::Lexer;
 
 #[test]
 fn test_parse_complex_program() {
@@ -42,4 +43,30 @@ fn test_parse_complex_program() {
     } else {
         panic!("Expected Program AST node");
     }
+}
+
+#[test]
+fn test_typecheck_complex_program() {
+    let code = r#"
+            func fibonacci(n: int) -> int {
+                if (n <= 1) {
+                    return n;
+                } else {
+                    return fibonacci(n - 1) + fibonacci(n - 2);
+                }
+            }
+
+            func main() -> int {
+                let result: int = fibonacci(10);
+                let numbers: [int] = [1, 2, 3, 4, 5];
+                for (let i = 0; i < 5; i = i + 1) {
+                    result = result + numbers[i];
+                }
+                return result;
+            }
+        "#;
+    let tokens = Lexer::tokenize(code).unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+    assert!(typecheck(&ast).is_ok());
 }

@@ -121,6 +121,12 @@ pub enum TypeAnnotation {
     Simple(String),
     Generic(String, Vec<TypeAnnotation>),
     Function(Vec<TypeAnnotation>, Option<Box<TypeAnnotation>>),
+    Int,
+    Float,
+    String,
+    Bool,
+    Array(Box<TypeAnnotation>),
+    Custom(String),
 }
 
 /// Represents binary operators in Alloy.
@@ -202,7 +208,6 @@ impl Parser {
             ))
         }
     }
-    
 
     /// Consumes the next token if it matches either of the given tokens.
     fn consume_either(&mut self, first: &Token, second: &Token) -> Result<(), ParserError> {
@@ -220,7 +225,12 @@ impl Parser {
     }
 
     /// Consumes the next token if it matches either of the given tokens.
-    fn consume_any(&mut self, first: &Token, second: &Token, third: &Token) -> Result<(), ParserError> {
+    fn consume_any(
+        &mut self,
+        first: &Token,
+        second: &Token,
+        third: &Token,
+    ) -> Result<(), ParserError> {
         if self.check(first) {
             self.consume(first)
         } else if self.check(second) {
@@ -280,9 +290,10 @@ impl Parser {
                 Ok(expr)
             }
             Some(Token::LBracket) => self.parse_array_literal(),
-            t => Err(ParserError::UnexpectedToken(
-                format!("in primary expression: {:?}", t),
-            )),
+            t => Err(ParserError::UnexpectedToken(format!(
+                "in primary expression: {:?}",
+                t
+            ))),
         }
     }
 
@@ -295,7 +306,10 @@ impl Parser {
         };
 
         // Check if the declaration is followed by a newline or EOF
-        if !matches!(self.peek(), Some(&Token::Newline) | None | Some(&Token::Eof)) {   
+        if !matches!(
+            self.peek(),
+            Some(&Token::Newline) | None | Some(&Token::Eof)
+        ) {
             return Err(ParserError::ExpectedToken(
                 "newline".to_string(),
                 format!("{:?}", self.peek().unwrap_or(&Token::Eof)),
@@ -412,8 +426,10 @@ impl Parser {
             self.consume(&Token::Pipe)?;
             let return_type = if self.consume_if(&Token::Arrow) {
                 Some(Box::new(self.parse_type_annotation()?))
-            } else { None };
-            return Ok(TypeAnnotation::Function(params, return_type));   
+            } else {
+                None
+            };
+            return Ok(TypeAnnotation::Function(params, return_type));
         }
         let base_type = self.parse_identifier()?;
         if self.consume_if(&Token::LBracket) {
@@ -455,8 +471,6 @@ impl Parser {
             initializer,
         })
     }
-
-    
 
     /// Parses a statement.
     pub fn parse_statement(&mut self) -> Result<AstNode, ParserError> {
@@ -562,9 +576,10 @@ impl Parser {
         while !self.check(&Token::RBrace) && !self.is_at_end() {
             // Skip any leading newlines
             while self.consume_if(&Token::Newline) {}
-            if self.check(&Token::RBrace) { break; }
+            if self.check(&Token::RBrace) {
+                break;
+            }
             statements.push(self.parse_statement()?);
-
         }
         println!("{:?}", statements);
 
@@ -575,7 +590,7 @@ impl Parser {
         Ok(statements)
     }
 
-    fn parse_trailing_closure(&mut self, callee: AstNode) -> Result<AstNode, ParserError> {  
+    fn parse_trailing_closure(&mut self, callee: AstNode) -> Result<AstNode, ParserError> {
         self.consume(&Token::Pipe)?;
         let mut arguments = Vec::new();
         if !self.check(&Token::Pipe) {
@@ -621,7 +636,7 @@ impl Parser {
         let mut elements = Vec::new();
         while !self.check(&Token::RBracket) {
             elements.push(self.parse_expression(Precedence::None)?);
-            
+
             if !self.consume_if(&Token::Comma) {
                 break;
             }

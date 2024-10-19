@@ -3,7 +3,7 @@
 mod error;
 mod lexer;
 mod parser;
-//mod type_checker;
+mod type_checker;
 
 use crate::error::CompilerError;
 use crate::lexer::Lexer;
