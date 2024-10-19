@@ -1,3 +1,5 @@
+#![feature(box_patterns)]
+
 use alloy::ast::AstNode;
 use alloy::parser::Parser;
 
@@ -34,7 +36,7 @@ fn test_parse_complex_program() {
         "Failed to parse complex program: {}",
         result.unwrap_err()
     );
-    if let Ok(AstNode::Program(declarations)) = result {
+    if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(
             declarations.len(),
             2,

@@ -6,7 +6,7 @@
 
 use thin_vec::ThinVec;
 
-use crate::ast::{AstNode, BinaryOperator, TypeAnnotation, UnaryOperator};
+use crate::{ast::{AstNode, BinaryOperator, TypeAnnotation, UnaryOperator}, ty::{Function, Ty}};
 use std::collections::HashMap;
 
 /// Represents a type in the Alloy type system.
@@ -88,42 +88,44 @@ impl TypeChecker {
             }
             AstNode::FunctionDeclaration {
                 name,
-                generic_params: _,
-                params,
-                return_type,
+                function: Function {
+                    generic_params: _,
+                    inputs: params,
+                    output: return_type,
+                },
                 body,
             } => {
-                let param_types: ThinVec<Type> = params
-                    .iter()
-                    .map(|(_, type_ann)| self.annotation_to_type(type_ann))
-                    .collect();
-                let return_type = return_type
-                    .as_ref()
-                    .map(|rt| self.annotation_to_type(rt))
-                    .unwrap_or(Type::Void);
-                let func_type = Type::Function(param_types, Box::new(return_type.clone()));
-                self.env.insert(name.clone(), func_type);
+                // let param_types: ThinVec<Type> = params
+                //     .iter()
+                //     .map(|(_, type_ann)| self.annotation_to_type(type_ann))
+                //     .collect();
+                // let return_type = return_type
+                //     .as_ref()
+                //     .map(|rt| self.annotation_to_type(rt))
+                //     .unwrap_or(Type::Void);
+                // let func_type = Type::Function(param_types, Box::new(return_type.clone()));
+                // self.env.insert(name.clone(), func_type);
 
-                // Create a new scope for the function body
-                let mut func_checker = TypeChecker::new();
-                func_checker.env = self.env.clone();
-                for (param_name, param_type) in params {
-                    func_checker
-                        .env
-                        .insert(param_name.clone(), self.annotation_to_type(param_type));
-                }
+                // // Create a new scope for the function body
+                // let mut func_checker = TypeChecker::new();
+                // func_checker.env = self.env.clone();
+                // for (param_name, param_type) in params {
+                //     func_checker
+                //         .env
+                //         .insert(param_name.clone(), self.annotation_to_type(param_type));
+                // }
 
-                for stmt in body {
-                    let stmt_type = func_checker.typecheck_statement(stmt)?;
-                    if stmt_type != return_type {
-                        return Err(TypeError {
-                            message: format!(
-                                "Function body statement type {:?} does not match declared return type {:?}",
-                                stmt_type, return_type
-                            ),
-                        });
-                    }
-                }
+                // for stmt in body {
+                //     let stmt_type = func_checker.typecheck_statement(stmt)?;
+                //     if stmt_type != return_type {
+                //         return Err(TypeError {
+                //             message: format!(
+                //                 "Function body statement type {:?} does not match declared return type {:?}",
+                //                 stmt_type, return_type
+                //             ),
+                //         });
+                //     }
+                // }
 
                 Ok(Type::Void)
             }
@@ -332,7 +334,7 @@ impl TypeChecker {
     }
 
     /// Checks the type of an array literal.
-    fn typecheck_array_literal(&self, elements: &[AstNode]) -> Result<Type, TypeError> {
+    fn typecheck_array_literal(&self, elements: &ThinVec<Box<AstNode>>) -> Result<Type, TypeError> {
         if elements.is_empty() {
             return Ok(Type::Array(Box::new(Type::Unknown)));
         }
@@ -354,20 +356,8 @@ impl TypeChecker {
     }
 
     /// Converts a TypeAnnotation to a Type.
-    fn annotation_to_type(&self, annotation: &TypeAnnotation) -> Type {
-        match annotation {
-            TypeAnnotation::Int => Type::Int,
-            TypeAnnotation::Float => Type::Float,
-            TypeAnnotation::String => Type::String,
-            TypeAnnotation::Bool => Type::Bool,
-            TypeAnnotation::Array(inner_type) => {
-                Type::Array(Box::new(self.annotation_to_type(inner_type)))
-            }
-            TypeAnnotation::Custom(name) => self.env.get(name).cloned().unwrap_or(Type::Unknown),
-            TypeAnnotation::Simple(_) => todo!(),
-            TypeAnnotation::Generic(_, vec) => todo!(),
-            TypeAnnotation::Function(vec, type_annotation) => todo!(),
-        }
+    fn annotation_to_type(&self, annotation: &Ty) -> Type {
+        todo!()
     }
 }
 
