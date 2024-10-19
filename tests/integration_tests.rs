@@ -1,4 +1,5 @@
-use alloy::parser::{AstNode, Parser};
+use alloy::parser::Parser;
+
 use alloy::type_checker::typecheck;
 use alloy::Lexer;
 

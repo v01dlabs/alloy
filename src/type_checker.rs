@@ -6,7 +6,7 @@
 
 use thin_vec::ThinVec;
 
-use crate::parser::{AstNode, BinaryOperator, TypeAnnotation, UnaryOperator};
+use crate::ast::{AstNode, BinaryOperator, TypeAnnotation, UnaryOperator};
 use std::collections::HashMap;
 
 /// Represents a type in the Alloy type system.
