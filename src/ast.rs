@@ -110,20 +110,6 @@ pub enum AstNode {
     ArrayLiteral(ThinVec<Box<AstNode>>),
 }
 
-/// Represents the type annotations in Alloy.
-#[derive(Debug, Clone, PartialEq)]
-pub enum TypeAnnotation {
-    Simple(String),
-    Generic(String, ThinVec<TypeAnnotation>),
-    Function(ThinVec<TypeAnnotation>, Option<Box<TypeAnnotation>>),
-    Int,
-    Float,
-    String,
-    Bool,
-    Array(Box<TypeAnnotation>),
-    Custom(String),
-}
-
 /// Represents binary operators in Alloy.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOperator {

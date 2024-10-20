@@ -1,6 +1,6 @@
 use thin_vec::ThinVec;
 
-use crate::ast::{AstNode};
+use crate::ast::AstNode;
 
 pub type Ident = String;
 

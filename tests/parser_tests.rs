@@ -1,7 +1,8 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{AstNode, BinaryOperator, Precedence, TypeAnnotation}, error::ParserError, lexer::{Lexer, Token}, parser::Parser, ty::{FnRetTy, Function, GenericParam, Ty, TyKind}
+    ast::{AstNode, BinaryOperator, Precedence}, error::ParserError, lexer::{Lexer, Token}, parser::Parser, 
+    ty::{FnRetTy, Function, GenericParam, Ty, TyKind}
 };
 use thin_vec::thin_vec;
 
