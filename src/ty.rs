@@ -1,6 +1,6 @@
 use thin_vec::ThinVec;
 
-use crate::ast::AstNode;
+use crate::{ast::{AstNode, P}, type_checker::Type};
 
 pub type Ident = String;
 
@@ -215,4 +215,3 @@ pub enum RefKind {
     ThreadLocal(Mutability),
     Sync(Mutability),
 }
-

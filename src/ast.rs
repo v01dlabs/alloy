@@ -4,6 +4,10 @@ use thin_vec::ThinVec;
 use crate::lexer::Token;
 use crate::ty::{Const, Function, Ident, Ty};
 
+#[allow(non_snake_case)]
+pub fn P<T: 'static>(value: T) -> Box<T> {
+    Box::new(value)
+}
 
 /// Represents the precedence levels for operators.
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
