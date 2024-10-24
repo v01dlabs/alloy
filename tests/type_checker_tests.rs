@@ -51,6 +51,7 @@ fn test_typecheck_while_loop() {
     assert!(type_check_code("fn invalid() { while (1) { } }").is_err());
 }
 
+// stubbed out for new syntax
 // #[test]
 // fn test_typecheck_for_loop() {
 //     assert!(type_check_code(

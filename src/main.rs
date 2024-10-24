@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("AST: {:?}", ast);
 
     // TODO: Implement type checking and transpilation
-    // type_checker::check(&ast)?;
+    type_checker::typecheck(&ast)?;
     // let rust_code = transpiler::transpile(&ast)?;
     // println!("Generated Rust code:\n{}", rust_code);
 

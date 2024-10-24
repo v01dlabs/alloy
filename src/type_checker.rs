@@ -7,6 +7,7 @@
 //! the program is well-typed according to Alloy's type system.
 
 use thin_vec::{thin_vec, ThinVec};
+use thiserror::Error;
 
 use crate::{
     
@@ -19,7 +20,7 @@ use std::collections::HashMap;
 
 
 /// Represents a typing error.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub struct TypeError {
     pub message: String,
 }
@@ -29,6 +30,7 @@ impl std::fmt::Display for TypeError {
         write!(f, "Type Error: {}", self.message)
     }
 }
+
 
 /// The type environment stores variable and function types.
 type TypeEnv = HashMap<String, Box<Type>>;
@@ -63,6 +65,23 @@ impl TypeChecker {
         TypeChecker {
             env: self.env.clone(),
             name_index: self.name_index
+        }
+    }
+
+    pub fn resolve_ident(&self, ident: &Ident) -> Result<Box<Type>, TypeError> {
+        match self.env.get(ident) {
+            Some(ty) => Ok(P(*ty.clone())),
+            None => Err(TypeError { message: format!("Undefined variable {}", ident) })
+        }
+    }
+
+    pub fn resolve_function(&self, name: &Ident) -> Result<Box<Type>, TypeError> {
+        match self.env.get(name) {
+            Some(ty) => match ty.clone() {
+                box Type::Function(_) => Ok(P(*ty.clone())),
+                _ => Err(TypeError { message: format!("Expected function, got {:?}", ty) })
+            },   
+            None => Err(TypeError { message: format!("Undefined function {}", name) })
         }
     }
 
@@ -116,15 +135,12 @@ impl TypeChecker {
                                     message: format!("return statement has type: {:?} but function specifies type: {:?}", 
                                         statement_type, return_type)
                                 });
-                            } else {
-                                return_type = statement_type.infer_or_type(&return_type).clone();
-                                break;
                             }
-                            
-                        } else {
-                            let statement_type = fn_checker.infer_type(statement)?;
-                            fn_checker.add_anon_type(&statement_type);
+                            return_type = statement_type.infer_or_type(&return_type).clone();
+                            break;
                         }
+                        let statement_type = fn_checker.infer_type(statement)?;
+                        fn_checker.add_anon_type(&statement_type);
                     }
                     let fn_type = Type::Function(Function { 
                         generic_params: generic_params.clone().into_iter().map(Into::into).collect(),
@@ -142,6 +158,7 @@ impl TypeChecker {
             AstNode::VariableDeclaration { 
                 name, mutable, type_annotation, initializer 
             } => {
+                // TODO: handle mutability
                 let var_type = annotation_to_type(type_annotation);
                 if let Some(initializer) = initializer {
                     if var_type == Type::Infer {
@@ -151,7 +168,6 @@ impl TypeChecker {
                     } else {
                         let inferred_type = self.infer_type(initializer)?;
                         if inferred_type != Type::Infer && inferred_type != var_type {
-                            println!("{:?}", var_type);
                             Err(TypeError {
                                 message: format!("Type mismatch: expected {:?}, got {:?}", var_type, inferred_type),
                             })
@@ -295,7 +311,7 @@ impl TypeChecker {
                         self.env.get(name).cloned()
                             .ok_or(TypeError { message: format!("Undefined function {}", name) })?
                     }
-                    e => return Err(TypeError { 
+                    &box ref e => return Err(TypeError { 
                         message: format!("Expected function call, got {:?}, error: {:?}", callee, e) 
                     })
                 };
@@ -307,6 +323,7 @@ impl TypeChecker {
                 }
             },
             AstNode::PipelineOperation { left, right } => {
+                //TODO: Placeholder implementation
                 let left_type = self.infer_type(left)?;
                 let right_type = self.infer_type(right)?;
                 //self.typecheck_binary_op(&BinaryOperator::Pipeline, &left_type, &right_type)
@@ -442,6 +459,7 @@ impl TypeChecker {
                 }
             }
             BinaryOperator::Assign => {
+                //TODO: Placeholder
                 Ok(Type::unit())
             },
             BinaryOperator::Pipeline => todo!(),
@@ -580,6 +598,15 @@ impl Type {
             _ => self,   
         }
     }   
+}
+
+impl From<&Option<Box<Ty>>> for Type {
+    fn from(ty: &Option<Box<Ty>>) -> Self {
+        match ty {
+            Some(ty) => Type::from(*ty.clone()),
+            None => Type::Infer,
+        }
+    }
 }
 
 impl From<Ty> for Type {
