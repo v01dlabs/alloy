@@ -23,14 +23,19 @@ fn test_parse_variable_declaration() {
         Token::Semicolon,
     ];
     let mut parser = create_parser(tokens);
-    let result = parser.parse_declaration().unwrap();
+    let result = parser.parse_declaration();
+    assert!(
+        result.is_ok(),
+        "Failed to parse variable declaration: {}",
+        result.unwrap_err()
+    );
     assert!(matches!(result,
-        box AstNode::VariableDeclaration {
+        Ok(box AstNode::VariableDeclaration {
             name,
             mutable: _,
             type_annotation: Some(box Ty { kind: TyKind::Simple(type_name) }),
             initializer: Some(box AstNode::IntLiteral(5))
-        } if name == "x" && type_name == "int"
+        }) if name == "x" && type_name == "int"
     ));
 }
 
@@ -236,8 +241,9 @@ fn test_parse_pipeline_operator() {
 
 #[test]
 fn test_parse_trailing_closure() {
-    let source = "someFunction() { return 42 }";
+    let source = "someFunction() { in return 42 }";
     let tokens = Lexer::tokenize(source).unwrap();
+    println!("{:?}", tokens);
     let mut parser = Parser::new(tokens);
     let result = parser.parse_expression(Precedence::None);
     assert!(
@@ -286,10 +292,16 @@ fn test_parse_return_statement() {
         Token::Semicolon,
     ];
     let mut parser = create_parser(tokens);
-    let result = parser.parse_statement().unwrap();
+    let result = parser.parse_statement();
+    println!("{:?}", result);
+    assert!(
+        result.is_ok(),
+        "Failed to parse return statement: {}",
+        result.unwrap_err()
+    );
     assert!(matches!(
         result,
-        box AstNode::ReturnStatement(Some(box AstNode::BinaryOperation { .. }))
+        Ok(box AstNode::ReturnStatement(Some(box AstNode::BinaryOperation { .. })))
     ));
 }
 

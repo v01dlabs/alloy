@@ -13,6 +13,7 @@ name = "integration_tests"
 path = "tests/integration_tests.rs"
 
 [dependencies]
+itertools = "0.13.0"
 miette = "7.2.0"
 owo-colors = "4.1.0"
 thin-vec = "0.2.13"

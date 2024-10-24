@@ -6,10 +6,11 @@
 
 use thin_vec::ThinVec;
 
-use crate::ast::{AstNode, BinaryOperator, Precedence};
+use crate::ast::{AstNode, BinaryOperator, Precedence, P};
 use crate::error::ParserError;
 use crate::lexer::Token;
 use crate::ty::{FnRetTy, Function, GenericParam, Ident, Param, Ty, TyKind};
+use itertools::{Itertools, MultiPeek};
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
@@ -32,6 +33,7 @@ impl Parser {
         self.tokens.peek()
     }
 
+
     /// Advances to the next token, consuming the current one.
     fn advance(&mut self) -> Option<Token> {
         let token = self.tokens.next();
@@ -41,7 +43,11 @@ impl Parser {
 
     /// Checks if the next token matches the expected token.
     fn check(&mut self, expected: &Token) -> bool {
-        self.peek() == Some(expected)
+        if self.peek() == Some(expected) {
+            true
+        } else {
+            false
+        }
     }
 
     /// Consumes the next token if it matches the expected token.
@@ -57,6 +63,7 @@ impl Parser {
     /// Consumes the expected token or returns an error.
     fn consume(&mut self, expected: &Token) -> Result<(), ParserError> {
         if self.consume_if(expected) {
+            println!("consumed {:?}", expected);
             Ok(())
         } else {
             Err(ParserError::ExpectedToken(
@@ -65,6 +72,32 @@ impl Parser {
                     .map_or("end of input".to_string(), |t| format!("{:?}", t)),
             ))
         }
+    }
+
+    fn will_occur_in_scope(&mut self, expected: &Token) -> bool {
+        let mut iter = self.tokens.clone().multipeek();
+        while let Some(t) = iter.peek() {
+            if t == expected {
+                return true;
+            }
+            if t.is_block_end() || t.is_block_start() {
+                return false;
+            }
+        }
+        false
+    }
+
+    fn will_occur_in_next_scope(&mut self, expected: &Token) -> bool {
+        let mut iter = self.tokens.clone().multipeek();
+        while let Some(t) = iter.peek() {
+            if t == expected {
+                return true;
+            }
+            if t.is_block_end() || t.is_block_start() && t != &Token::LBrace {
+                return false;
+            }
+        }
+        false
     }
 
     /// Consumes the next token if it matches either of the given tokens.
@@ -124,7 +157,7 @@ impl Parser {
         if declarations.is_empty() {
             Err(ParserError::InvalidExpression)
         } else {
-            Ok(Box::new(AstNode::Program(declarations)))
+            Ok(P(AstNode::Program(declarations)))
         }
     }
 
@@ -133,25 +166,30 @@ impl Parser {
         match self.advance() {
             Some(Token::Identifier(name)) => {
                 if self.check(&Token::LParen) {
-                    self.parse_function_call(Box::new(AstNode::Identifier(name)))
+                    self.parse_function_call(P(AstNode::Identifier(name)))
+                } else if self.check(&Token::LBracket) {
+                    self.parse_generic_function_call(name)
                 } else {
-                    Ok(Box::new(AstNode::Identifier(name)))
+                    Ok(P(AstNode::Identifier(name)))
                 }
             }
-            Some(Token::IntLiteral(value)) => Ok(Box::new(AstNode::IntLiteral(value))),
-            Some(Token::FloatLiteral(value)) => Ok(Box::new(AstNode::FloatLiteral(value))),
-            Some(Token::StringLiteral(value)) => Ok(Box::new(AstNode::StringLiteral(value))),
-            Some(Token::BoolLiteral(value)) => Ok(Box::new(AstNode::BoolLiteral(value))),
+            Some(Token::IntLiteral(value)) => Ok(P(AstNode::IntLiteral(value))),
+            Some(Token::FloatLiteral(value)) => Ok(P(AstNode::FloatLiteral(value))),
+            Some(Token::StringLiteral(value)) => Ok(P(AstNode::StringLiteral(value))),
+            Some(Token::BoolLiteral(value)) => Ok(P(AstNode::BoolLiteral(value))),
             Some(Token::LParen) => {
                 let expr = self.parse_expression(Precedence::None)?;
                 self.consume(&Token::RParen)?;
                 Ok(expr)
             }
             Some(Token::LBracket) => self.parse_array_literal(),
-            t => Err(ParserError::UnexpectedToken(format!(
-                "in primary expression: {:?}",
-                t
-            ))),
+            t => {
+                println!("primary {:?}, tokens {:?}", t, self.tokens);
+                Err(ParserError::UnexpectedToken(format!(
+                    "in primary expression: {:?}",
+                    t
+                )))
+            },
         }
     }
 
@@ -160,17 +198,18 @@ impl Parser {
         let declaration = match self.peek() {
             Some(Token::Let) => self.parse_variable_declaration(),
             Some(Token::Fn) => self.parse_function_declaration(),
-            _ => self.parse_statement(),
+            _ => self.parse_statement()
         };
 
         // Check if the declaration is followed by a newline or EOF
+        let next_token = self.peek();
         if !matches!(
-            self.peek(),
+            next_token,
             Some(&Token::Newline) | None | Some(&Token::Eof)
         ) {
             return Err(ParserError::ExpectedToken(
                 "newline".to_string(),
-                format!("{:?}", self.peek().unwrap_or(&Token::Eof)),
+                format!("{:?}", next_token.unwrap_or(&Token::Eof)),
             ));
         }
 
@@ -205,7 +244,7 @@ impl Parser {
         println!("{}({:?}) -> {:?}", name, params, return_type);
         let body = self.parse_block()?;
 
-        Ok(Box::new(AstNode::FunctionDeclaration {
+        Ok(P(AstNode::FunctionDeclaration {
             name,
             function: Function {
                 generic_params,
@@ -218,28 +257,46 @@ impl Parser {
 
     fn parse_function_call(&mut self, callee: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         let arguments = self.parse_arguments()?;
-        if self.check(&Token::LBrace) {
-            let closure = self.finish_trailing_closure()?;
-            Ok(Box::new(AstNode::TrailingClosure {
-                callee: Box::new(AstNode::FunctionCall {
-                    callee,
-                    arguments,
-                }),
-                closure: Box::new(closure),
-            }))
+        if self.consume_if(&Token::LBrace) {
+            
+            self.parse_trailing_closure(callee).map(P)
         } else {
-            Ok(Box::new(AstNode::FunctionCall {
+            Ok(P(AstNode::FunctionCall {
                 callee,
                 arguments,
             }))
         }
     }
 
-    /// Finishes parsing a trailing closure.
-    fn finish_trailing_closure(&mut self) -> Result<AstNode, ParserError> {
-        let body = self.parse_block()?;
-        Ok(AstNode::Block(body))
+    /// Parses a generic function call. 
+    /// Falls through to treating as an identifier if it wasn't a generic function call, mostly.
+    fn parse_generic_function_call(&mut self, callee: String) -> Result<Box<AstNode>, ParserError> {
+        let generic_args = if self.consume_if(&Token::LBracket) {
+            let mut params = ThinVec::new();
+            while !self.check(&Token::RBracket) {
+                params.push(P(Ty::simple(self.parse_identifier()?)));
+                if !self.consume_if(&Token::Comma) {
+                    break;
+                }
+            }
+            self.consume(&Token::RBracket)?;
+            params
+        } else {
+            return Ok(P(AstNode::Identifier(callee)));
+        };
+        if !self.check(&Token::LParen) {
+            return Ok(P(AstNode::Identifier(callee)));
+        }
+        let arguments = self.parse_arguments()?;
+        if self.consume_if(&Token::LBrace) {
+            self.parse_trailing_closure(P(AstNode::Identifier(callee))).map(P)
+        } else {
+            Ok(P(AstNode::GenericFunctionCall { name: callee, generic_args, arguments }))
+        }
     }
+
+
+    
 
     // Helper method to parse generic parameters
     fn parse_generic_params(&mut self) -> Result<ThinVec<GenericParam>, ParserError> {
@@ -292,7 +349,7 @@ impl Parser {
             } else {
                 None
             };
-            return Ok(Box::new(Ty {
+            return Ok(P(Ty {
                 kind: TyKind::Function(Function { 
                     generic_params: ThinVec::new(),
                     inputs: params, 
@@ -312,11 +369,11 @@ impl Parser {
                 }
             }
             self.consume(&Token::RBracket)?;
-            Ok(Box::new(Ty {
+            Ok(P(Ty {
                 kind: TyKind::Generic(base_type, params),
             }))
         } else {
-            Ok(Box::new(Ty {
+            Ok(P(Ty {
                 kind: TyKind::Simple(base_type),
             }))
         }
@@ -339,7 +396,7 @@ impl Parser {
         };
         // Consume the semicolon if present, but don't require it
         self.consume_if(&Token::Semicolon);
-        Ok(Box::new(AstNode::VariableDeclaration {
+        Ok(P(AstNode::VariableDeclaration {
             name,
             mutable,
             type_annotation,
@@ -357,12 +414,14 @@ impl Parser {
             Some(Token::For) => self.parse_for_statement(),
             Some(Token::Guard) => self.parse_guard_statement(),
             Some(Token::Return) => self.parse_return_statement(),
-            Some(Token::LBrace) => Ok(Box::new(AstNode::Block(self.parse_block()?))),
+            Some(Token::LBrace) => Ok(P(AstNode::Block(self.parse_block()?))),
             Some(Token::Let) => self.parse_variable_declaration(),
-            _ => self.parse_expression(Precedence::None).and_then(|expr| {
-                self.consume_if(&Token::Semicolon);
-                Ok(expr)
-            }),
+            _ => {
+                self.parse_expression(Precedence::None).and_then(|expr| {
+                    self.consume_if(&Token::Semicolon);
+                    Ok(expr)
+                })
+            },
         }
     }
 
@@ -380,7 +439,7 @@ impl Parser {
         } else {
             None
         };
-        Ok(Box::new(AstNode::IfStatement {
+        Ok(P(AstNode::IfStatement {
             condition,
             then_branch,
             else_branch,
@@ -394,9 +453,9 @@ impl Parser {
         let condition = self.parse_expression(Precedence::None)?;
         self.consume(&Token::RParen)?;
         let body = self.parse_block()?;
-        Ok(Box::new(AstNode::WhileLoop {
+        Ok(P(AstNode::WhileLoop {
             condition,
-            body: Box::new(AstNode::Block(body)),
+            body: P(AstNode::Block(body)),
         }))
     }
 
@@ -407,10 +466,10 @@ impl Parser {
         self.consume(&Token::In)?;
         let iterable = self.parse_expression(Precedence::None)?;
         let body = self.parse_block()?;
-        Ok(Box::new(AstNode::ForInLoop {
+        Ok(P(AstNode::ForInLoop {
             item,
             iterable,
-            body: Box::new(AstNode::Block(body)),
+            body: P(AstNode::Block(body)),
         }))
     }
 
@@ -420,24 +479,25 @@ impl Parser {
         let condition = self.parse_expression(Precedence::None)?;
         self.consume(&Token::Else)?;
         let body = self.parse_statement()?;
-        Ok(Box::new(AstNode::GuardStatement { condition, body }))
+        Ok(P(AstNode::GuardStatement { condition, body }))
     }
 
     /// Parses a return statement.
     fn parse_return_statement(&mut self) -> Result<Box<AstNode>, ParserError> {
-        self.advance(); // Consume 'return'
+        self.consume(&Token::Return)?;
         let value = if !self.check(&Token::Semicolon) && !self.check(&Token::RBrace) {
+            println!("parsing expression");
             Some(self.parse_expression(Precedence::None)?)
         } else {
             None
         };
         self.consume_if(&Token::Semicolon);
-        Ok(Box::new(AstNode::ReturnStatement(value)))
+        Ok(P(AstNode::ReturnStatement(value)))
     }
 
     fn parse_statement_or_block(&mut self) -> Result<Box<AstNode>, ParserError> {
         if self.check(&Token::LBrace) {
-            Ok(Box::new(AstNode::Block(self.parse_block()?)))
+            Ok(P(AstNode::Block(self.parse_block()?)))
         } else {
             Ok(self.parse_statement()?)
         }
@@ -460,36 +520,61 @@ impl Parser {
 
         // Skip any trailing newlines
         while self.consume_if(&Token::Newline) {}
-
+        
         self.consume(&Token::RBrace)?;
         Ok(statements)
     }
 
     fn parse_trailing_closure(&mut self, callee: Box<AstNode>) -> Result<AstNode, ParserError> {
-        self.consume(&Token::Pipe)?;
+        
         let mut arguments = ThinVec::new();
-        if !self.check(&Token::Pipe) {
-            loop {
-                arguments.push(self.parse_expression(Precedence::None)?);
-                if !self.consume_if(&Token::Comma) {
-                    break;
-                }
+        println!("parsing arguments");
+        loop {
+            if self.check(&Token::In) { break; }
+            
+            arguments.push(self.parse_expression(Precedence::None)?);
+            if !self.consume_if(&Token::Comma) {
+                break;
             }
         }
-        self.consume(&Token::Pipe)?;
+        self.consume(&Token::In)?;
+        println!("{:?}", self.tokens);
         let closure = self.finish_trailing_closure()?;
         Ok(AstNode::TrailingClosure {
-            callee: Box::new(AstNode::FunctionCall {
+            callee: P(AstNode::FunctionCall {
                 callee,
                 arguments,
             }),
-            closure: Box::new(closure),
+            closure: P(closure),
         })
+    }
+
+    /// Finishes parsing a trailing closure.
+    fn finish_trailing_closure(&mut self) -> Result<AstNode, ParserError> {
+        let mut statements = ThinVec::new();
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            // Skip any leading newlines
+            while self.consume_if(&Token::Newline) {}
+            if self.check(&Token::RBrace) {
+                break;
+            }
+            statements.push(self.parse_statement()?);
+        }
+        println!("{:?}", statements);
+
+        // Skip any trailing newlines
+        while self.consume_if(&Token::Newline) {}
+
+        self.consume(&Token::RBrace)?;
+        Ok(AstNode::Block(statements))
     }
 
     /// Parses an expression.
     pub fn parse_expression(&mut self, precedence: Precedence) -> Result<Box<AstNode>, ParserError> {
         let mut left = self.parse_primary()?;
+        if self.check(&Token::Semicolon) || self.is_at_end() || self.check(&Token::RBrace) {
+            return Ok(left);
+        }
 
         while precedence < self.get_precedence() {
             if self.check(&Token::Semicolon) || self.is_at_end() {
@@ -499,8 +584,10 @@ impl Parser {
         }
 
         // Check for trailing closure
-        if self.check(&Token::Pipe) {
-            left = Box::new(self.parse_trailing_closure(left)?);
+        if self.check(&Token::LBrace) && self.will_occur_in_next_scope(&Token::In) {
+            println!("found closure");
+            self.consume(&Token::LBrace)?;
+            left = P(self.parse_trailing_closure(left)?);
         }
 
         Ok(left)
@@ -518,7 +605,7 @@ impl Parser {
         }
         println!("{:?}", elements);
         self.consume(&Token::RBracket)?;
-        Ok(Box::new(AstNode::ArrayLiteral(elements)))
+        Ok(P(AstNode::ArrayLiteral(elements)))
     }
 
     /// Parses an infix expression.
@@ -545,7 +632,7 @@ impl Parser {
     fn parse_assignment(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         self.advance(); // Consume the '=' token
         let value = self.parse_expression(Precedence::Assignment)?;
-        Ok(Box::new(AstNode::BinaryOperation {
+        Ok(P(AstNode::BinaryOperation {
             left,
             operator: BinaryOperator::Assign,
             right: value,
@@ -556,9 +643,9 @@ impl Parser {
     fn parse_pipeline(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         self.advance(); // Consume the '|>' token
         let right = self.parse_expression(Precedence::Pipeline)?;
-        Ok(Box::new(AstNode::PipelineOperation {
-            left: left,
-            right: right,
+        Ok(P(AstNode::PipelineOperation {
+            left,
+            right,
         }))
     }
 
@@ -572,10 +659,10 @@ impl Parser {
             "Expected binary operator".to_string(),
         ))?;
         let right = self.parse_expression(precedence)?;
-        Ok(Box::new(AstNode::BinaryOperation {
-            left: left,
+        Ok(P(AstNode::BinaryOperation {
+            left,
             operator: self.token_to_binary_operator(operator)?,
-            right: right,   
+            right,   
         }))
     }
 
