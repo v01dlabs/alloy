@@ -13,11 +13,17 @@ name = "integration_tests"
 path = "tests/integration_tests.rs"
 
 [dependencies]
+itertools = "0.13.0"
 miette = "7.2.0"
 owo-colors = "4.1.0"
 thin-vec = "0.2.13"
+thiserror = "1.0.65"
 tracing = "0.1.40"
 
 [[bin]]
-name = "alloy"
+name = "alloyc"
 path = "src/main.rs"
+
+[lib]
+name = "alloy"
+path = "src/lib.rs" 

@@ -1,9 +1,8 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    error::ParserError,
-    lexer::{Lexer, Token},
-    parser::{AstNode, BinaryOperator, Parser, Precedence, TypeAnnotation},
+    ast::{AstNode, BinaryOperator, Precedence}, error::ParserError, lexer::{Lexer, Token}, parser::Parser, 
+    ty::{FnRetTy, Function, GenericParam, Ty, TyKind}
 };
 use thin_vec::thin_vec;
 
@@ -24,14 +23,19 @@ fn test_parse_variable_declaration() {
         Token::Semicolon,
     ];
     let mut parser = create_parser(tokens);
-    let result = parser.parse_declaration().unwrap();
+    let result = parser.parse_declaration();
+    assert!(
+        result.is_ok(),
+        "Failed to parse variable declaration: {}",
+        result.unwrap_err()
+    );
     assert!(matches!(result,
-        AstNode::VariableDeclaration {
+        Ok(box AstNode::VariableDeclaration {
             name,
             mutable: _,
-            type_annotation: Some(TypeAnnotation::Simple(type_name)),
+            type_annotation: Some(box Ty { kind: TyKind::Simple(type_name) }),
             initializer: Some(box AstNode::IntLiteral(5))
-        } if name == "x" && type_name == "int"
+        }) if name == "x" && type_name == "int"
     ));
 }
 
@@ -66,24 +70,26 @@ fn test_parse_function_declaration() {
     let result = parser.parse_declaration().unwrap();
 
     match result {
-        AstNode::FunctionDeclaration {
+        box AstNode::FunctionDeclaration {
             name,
-            generic_params,
-            params,
-            return_type,
+            function: Function {
+                generic_params,
+                inputs: params,
+                output: return_type,
+            },
             body,
         } => {
             assert_eq!(name, "add");
-            assert_eq!(generic_params, Some(thin_vec!["T".to_string()]));
+            assert_eq!(generic_params, thin_vec![GenericParam::simple("T".to_string())]); 
             assert_eq!(params.len(), 2);
-            assert_eq!(params[0].0, "a");
-            assert_eq!(params[1].0, "b");
-            assert!(matches!(&params[0].1, TypeAnnotation::Simple(t) if t == "T"));
-            assert!(matches!(&params[1].1, TypeAnnotation::Simple(t) if t == "T"));
-            assert!(matches!(return_type, Some(TypeAnnotation::Simple(t)) if t == "T"));
+            assert_eq!(params[0].name, "a");            
+            assert_eq!(params[1].name, "b");
+            assert!(matches!(&params[0].ty.kind, TyKind::Simple(t) if t == "T"));
+            assert!(matches!(&params[1].ty.kind, TyKind::Simple(t) if t == "T"));
+            assert!(matches!(return_type, FnRetTy::Ty(box Ty { kind: TyKind::Simple(t) }) if t == "T"));
             assert_eq!(body.len(), 1);
-            match &body[0] {
-                AstNode::ReturnStatement(Some(box AstNode::BinaryOperation { .. })) => {}
+            match body[0] {
+                box AstNode::ReturnStatement(Some(box AstNode::BinaryOperation { .. })) => {}
                 _ => panic!("Expected return statement with binary operation"),
             }
         }
@@ -109,12 +115,12 @@ fn test_parse_multiple_declarations() {
     let mut parser = Parser::new(tokens);
     let result = parser.parse();
     assert!(result.is_ok());
-    if let Ok(AstNode::Program(declarations)) = result {
+    if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(declarations.len(), 2);
-        assert!(matches!(&declarations[0],
-            AstNode::VariableDeclaration { name, .. } if name == "x"));
-        assert!(matches!(&declarations[1],
-            AstNode::VariableDeclaration { name, .. } if name == "y"));
+        assert!(matches!(declarations[0].clone(),
+            box AstNode::VariableDeclaration { name, .. } if name == "x"));
+        assert!(matches!(declarations[1].clone(),
+            box AstNode::VariableDeclaration { name, .. } if name == "y"));
     } else {
         panic!("Expected Program with two declarations");
     }
@@ -143,7 +149,7 @@ fn test_parse_if_statement() {
     let mut parser = create_parser(tokens);
     let result = parser.parse_statement().unwrap();
     assert!(matches!(result,
-        AstNode::IfStatement {
+        box AstNode::IfStatement {
             condition: box AstNode::BinaryOperation { .. },
             then_branch: box AstNode::Block(then_statements),
             else_branch: Some(box AstNode::Block(else_statements))
@@ -176,7 +182,7 @@ fn test_parse_while_loop() {
         "Failed to parse while loop: {}",
         result.unwrap_err()
     );
-    if let Ok(AstNode::WhileLoop { condition, body }) = result {
+    if let Ok(box AstNode::WhileLoop { condition, body }) = result {
         assert!(matches!(*condition, AstNode::BinaryOperation { .. }));
         assert!(matches!(*body, AstNode::Block(statements) if statements.len() == 1));
     } else {
@@ -195,7 +201,7 @@ fn test_parse_for_statement() {
         "Failed to parse for statement: {}",
         result.unwrap_err()
     );
-    if let Ok(AstNode::ForInLoop {
+    if let Ok(box AstNode::ForInLoop {
         item,
         iterable,
         body,
@@ -226,7 +232,7 @@ fn test_parse_pipeline_operator() {
     let mut parser = create_parser(tokens);
     let result = parser.parse_statement().unwrap();
     assert!(matches!(result,
-        AstNode::PipelineOperation {
+        box AstNode::PipelineOperation {
             left: box AstNode::PipelineOperation { .. },
             right: box AstNode::FunctionCall { .. }
         }
@@ -235,8 +241,9 @@ fn test_parse_pipeline_operator() {
 
 #[test]
 fn test_parse_trailing_closure() {
-    let source = "someFunction() { return 42 }";
+    let source = "someFunction() { in return 42 }";
     let tokens = Lexer::tokenize(source).unwrap();
+    println!("{:?}", tokens);
     let mut parser = Parser::new(tokens);
     let result = parser.parse_expression(Precedence::None);
     assert!(
@@ -244,7 +251,7 @@ fn test_parse_trailing_closure() {
         "Failed to parse trailing closure: {}",
         result.unwrap_err()
     );
-    if let Ok(AstNode::TrailingClosure { callee, closure }) = result {
+    if let Ok(box AstNode::TrailingClosure { callee, closure }) = result {
         assert!(matches!(*callee, AstNode::FunctionCall { .. }));
         assert!(matches!(*closure, AstNode::Block(..)));
     } else {
@@ -268,7 +275,7 @@ fn test_parse_guard_statement() {
     let mut parser = create_parser(tokens);
     let result = parser.parse_statement().unwrap();
     assert!(matches!(result,
-        AstNode::GuardStatement {
+        box AstNode::GuardStatement {
             condition: box AstNode::BinaryOperation { .. },
             body: box AstNode::Block(statements)
         } if statements.len() == 1
@@ -285,10 +292,16 @@ fn test_parse_return_statement() {
         Token::Semicolon,
     ];
     let mut parser = create_parser(tokens);
-    let result = parser.parse_statement().unwrap();
+    let result = parser.parse_statement();
+    println!("{:?}", result);
+    assert!(
+        result.is_ok(),
+        "Failed to parse return statement: {}",
+        result.unwrap_err()
+    );
     assert!(matches!(
         result,
-        AstNode::ReturnStatement(Some(box AstNode::BinaryOperation { .. }))
+        Ok(box AstNode::ReturnStatement(Some(box AstNode::BinaryOperation { .. })))
     ));
 }
 
@@ -309,7 +322,7 @@ fn test_parse_complex_expression() {
     let mut parser = create_parser(tokens);
     let result = parser.parse_statement().unwrap();
     assert!(matches!(result,
-        AstNode::BinaryOperation {
+        box AstNode::BinaryOperation {
             left: box AstNode::Identifier(a),
             operator: BinaryOperator::Add,
             right: box AstNode::BinaryOperation {
@@ -332,7 +345,7 @@ fn test_parse_generic_type_annotation() {
         "Failed to parse generic type annotation: {}",
         result.unwrap_err()
     );
-    if let Ok(AstNode::VariableDeclaration {
+    if let Ok(box AstNode::VariableDeclaration {
         name,
         mutable: _,
         type_annotation,
@@ -341,7 +354,7 @@ fn test_parse_generic_type_annotation() {
     {
         assert_eq!(name, "x");
         assert!(
-            matches!(type_annotation, Some(TypeAnnotation::Generic(base_type, params)) if base_type == "Array" && params.len() == 1)
+            matches!(type_annotation, Some(box Ty { kind: TyKind::Generic(base_type, params) }) if base_type == "Array" && params.len() == 1)
         );
         assert!(matches!(initializer, Some(box AstNode::ArrayLiteral(..))));
     } else {
@@ -369,10 +382,10 @@ fn test_parse_nested_generic_type_annotation() {
     let mut parser = create_parser(tokens);
     let result = parser.parse_declaration().unwrap();
     assert!(matches!(result,
-        AstNode::VariableDeclaration {
+        box AstNode::VariableDeclaration {
             name,
             mutable: _,
-            type_annotation: Some(TypeAnnotation::Generic(base_type, params)),
+            type_annotation: Some(box Ty { kind: TyKind::Generic(base_type, params) }),
             initializer: None
         } if name == "x" && base_type == "Map" && params.len() == 2
     ));
@@ -389,19 +402,17 @@ fn test_parse_function_with_generic_return_type() {
         "Failed to parse function with generic return type: {}",
         result.unwrap_err()
     );
-    if let Ok(AstNode::FunctionDeclaration {
+    if let Ok(box AstNode::FunctionDeclaration {
         name,
-        generic_params,
-        params,
-        return_type,
+        function: Function { generic_params, inputs: params, output: return_type },
         body,
     }) = result
     {
         assert_eq!(name, "getValues");
-        assert!(generic_params.is_none());
+        assert!(generic_params.is_empty());
         assert!(params.is_empty());
         assert!(
-            matches!(return_type, Some(TypeAnnotation::Generic(base_type, type_params)) if base_type == "Array" && type_params.len() == 1)
+            matches!(return_type, FnRetTy::Ty(box Ty { kind: TyKind::Generic(base_type, type_params) }) if base_type == "Array" && type_params.len() == 1)
         );
         assert!(!body.is_empty());
     } else {

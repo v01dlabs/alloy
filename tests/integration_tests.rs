@@ -1,4 +1,8 @@
-use alloy::parser::{AstNode, Parser};
+#![feature(box_patterns)]
+
+use alloy::ast::AstNode;
+use alloy::parser::Parser;
+
 use alloy::type_checker::typecheck;
 use alloy::Lexer;
 
@@ -32,7 +36,7 @@ fn test_parse_complex_program() {
         "Failed to parse complex program: {}",
         result.unwrap_err()
     );
-    if let Ok(AstNode::Program(declarations)) = result {
+    if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(
             declarations.len(),
             2,
@@ -48,7 +52,7 @@ fn test_parse_complex_program() {
 #[test]
 fn test_typecheck_complex_program() {
     let code = r#"
-            func fibonacci(n: int) -> int {
+            fn fibonacci(n: int) -> int {
                 if (n <= 1) {
                     return n;
                 } else {
@@ -56,7 +60,7 @@ fn test_typecheck_complex_program() {
                 }
             }
 
-            func main() -> int {
+            fn main() -> int {
                 let result: int = fibonacci(10);
                 let numbers: [int] = [1, 2, 3, 4, 5];
                 for (let i = 0; i < 5; i = i + 1) {
