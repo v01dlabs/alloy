@@ -14,7 +14,6 @@ use crate::{
     ty::{AttrItem, BindingMode, Const, FnRetTy, Ident, IntTy,PatField, Path, Pattern, PatternKind, RefKind, Ty, TyKind, TypeOp}, 
 };
 
-use core::{fmt, ops::Deref};
 use std::collections::HashMap;
 
 
@@ -69,12 +68,33 @@ impl TypeChecker {
 
     pub fn infer_type(&mut self, ast: &AstNode) -> Result<Type, TypeError> {
         match ast {
-            AstNode::Program(program) => todo!(),
+            AstNode::Program(program) => {
+                let mut last_type = Type::Infer;
+                for statement in program.iter() {
+                    last_type = self.infer_type(statement)?;
+                }
+                Ok(last_type)
+            },
             AstNode::FunctionDeclaration { 
                 name, 
                 function: crate::ty::Function { generic_params, inputs, output }, 
                 body } => {
                     let mut fn_checker = self.copy_env();
+                    for generic_param in generic_params.iter() {
+                        match &generic_param.kind {
+                            crate::ty::GenericParamKind::Type(Some( box ty)) => {
+                                let ty = P(Type::from(ty.clone()));
+                                fn_checker.env.insert(generic_param.name.clone(), ty.clone());
+                            },
+                            crate::ty::GenericParamKind::Type(None) => {
+                                fn_checker.env.insert(generic_param.name.clone(), P(Type::Infer));
+                            },
+                            crate::ty::GenericParamKind::Const { box ty, .. } => {
+                                let ty = P(Type::from(ty.clone()));
+                                fn_checker.env.insert(generic_param.name.clone(), ty);
+                            },
+                        }
+                    }
                     let param_types: ThinVec<_> = inputs
                         .iter()
                         .map(|param| {
@@ -131,6 +151,7 @@ impl TypeChecker {
                     } else {
                         let inferred_type = self.infer_type(initializer)?;
                         if inferred_type != Type::Infer && inferred_type != var_type {
+                            println!("{:?}", var_type);
                             Err(TypeError {
                                 message: format!("Type mismatch: expected {:?}, got {:?}", var_type, inferred_type),
                             })
@@ -162,11 +183,9 @@ impl TypeChecker {
                                 message: format!("then and else branches of if statement should have the same type, 
                                     but they have different types: {:?} and {:?}", then_type, else_type) })
                         } else {
-                            self.add_anon_type(&then_type);
                             Ok(then_type)
                         }
                     } else {
-                        self.add_anon_type(&then_type);
                         Ok(then_type)
                     }
                 }
@@ -196,7 +215,6 @@ impl TypeChecker {
                     Err(TypeError { message: format!("conditional expression `{:?}` should resolve to a bool", cond_type) })
                 } else {
                     let body_type = self.infer_type(body)?;
-                    self.add_anon_type(&body_type);
                     Ok(body_type)
                 }
             },
@@ -207,22 +225,164 @@ impl TypeChecker {
                     Ok(Type::unit())
                 }
             },
-            AstNode::Block(block) => todo!(),
-            AstNode::BinaryOperation { left, operator, right } => todo!(),
-            AstNode::UnaryOperation { operator, operand } => todo!(),
-            AstNode::FunctionCall { callee, arguments } => todo!(),
-            AstNode::GenericFunctionCall { name, generic_args, arguments } => todo!(),
-            AstNode::TrailingClosure { callee, closure } => todo!(),
-            AstNode::PipelineOperation { left, right } => todo!(),
-            AstNode::Identifier(ident) => todo!(),
-            AstNode::IntLiteral(i) => todo!(),
-            AstNode::FloatLiteral(f) => todo!(),
-            AstNode::StringLiteral(s) => todo!(),
-            AstNode::BoolLiteral(b) => todo!(),
-            AstNode::ArrayLiteral(elements) => todo!(),
+            AstNode::Block(block) => {
+                let mut last_type = Type::Infer;
+                for statement in block.iter() {
+                    last_type = self.infer_type(statement)?;
+                }
+                Ok(last_type)
+            },
+            AstNode::BinaryOperation { left, operator, right } => {
+                let left_type = self.infer_type(left)?;
+                let right_type = self.infer_type(right)?;
+                self.typecheck_binary_op(operator, &left_type, &right_type)
+            },
+            AstNode::UnaryOperation { operator, operand } => {
+                let operand_type = self.infer_type(operand)?;
+                self.typecheck_unary_op(operator, &operand_type)
+            },
+            AstNode::FunctionCall { callee, arguments } => {
+                let callee_type = self.infer_type(callee)?;
+                if let Type::Function(function) = callee_type {
+                    if arguments.len() != function.inputs.len() {
+                        return Err(TypeError { 
+                            message: format!("Expected {} arguments, got {}", function.inputs.len(), arguments.len()) 
+                        });
+                    }
+                    let return_type = function.output.clone();
+                    for (argument, param_type) in arguments.iter().zip(function.inputs.iter()) {
+                        let arg_type = self.infer_type(argument)?;
+                        if arg_type != *param_type.ty {
+                            return Err(TypeError { 
+                                message: format!("Argument type mismatch: expected {:?}, got {:?}", param_type, arg_type) 
+                            });
+                        }
+                    }
+                    Ok(*return_type)
+                } else {
+                    Err(TypeError { message: format!("Expected function, got {:?}", callee_type) })
+                }
+            },
+            AstNode::GenericFunctionCall { name, generic_args, arguments } => {
+                let callee_type = self.env.get(name).cloned()
+                    .ok_or(TypeError { message: format!("Undefined function {}", name) })?;
+                match *callee_type {
+                    Type::Function(function) => self.typecheck_function_call(&function, arguments, generic_args),
+                    e => Err(TypeError { message: format!("Expected function, got {:?}, error: {:?}", name, e) })
+                }
+            },
+            AstNode::TrailingClosure { callee, closure } => {
+                let mut full_args: ThinVec<Box<AstNode>> = thin_vec![];
+                let mut generic_arguments: ThinVec<Box<Ty>> = thin_vec![];
+                let callee_type = match callee {
+                    &box AstNode::GenericFunctionCall { 
+                        ref name, ref generic_args, ref arguments
+                    } => {
+                        full_args.append(&mut arguments.clone());
+                        // Currently assuming the last argument is the closure, as in Kotlin
+                        full_args.push(closure.clone());
+                        generic_arguments.append(&mut generic_args.clone());
+                        self.env.get(name).cloned()
+                            .ok_or(TypeError { message: format!("Undefined function {}", name) })?
+                    }
+                    &box AstNode::FunctionCall {ref callee, ref arguments } => {
+                        full_args.append(&mut arguments.clone());
+                        // Currently assuming the last argument is the closure, as in Kotlin
+                        full_args.push(closure.clone());
+                        P(self.infer_type(&callee)?)
+                    },
+                    &box AstNode::Identifier(ref name) => {
+                        self.env.get(name).cloned()
+                            .ok_or(TypeError { message: format!("Undefined function {}", name) })?
+                    }
+                    e => return Err(TypeError { 
+                        message: format!("Expected function call, got {:?}, error: {:?}", callee, e) 
+                    })
+                };
+                match *callee_type {
+                    Type::Function(function) => {
+                        self.typecheck_function_call(&function, &full_args, &generic_arguments)
+                    },
+                    e => Err(TypeError { message: format!("Expected function, got {:?}, error: {:?}", callee, e) })
+                }
+            },
+            AstNode::PipelineOperation { left, right } => {
+                let left_type = self.infer_type(left)?;
+                let right_type = self.infer_type(right)?;
+                //self.typecheck_binary_op(&BinaryOperator::Pipeline, &left_type, &right_type)
+                Ok(right_type)
+            },
+            AstNode::Identifier(ident) => self.env.get(ident).cloned()
+                .map(|ty| *ty).ok_or(TypeError { message: format!("Undefined variable {}", ident) }),  
+            AstNode::IntLiteral(_) => Ok(Type::Int(IntTy::Int)),
+            AstNode::FloatLiteral(_) => Ok(Type::Float),
+            AstNode::StringLiteral(_) => Ok(Type::String),
+            AstNode::BoolLiteral(_) => Ok(Type::Bool),
+            AstNode::ArrayLiteral(elements) => self.typecheck_array_literal(elements),
         }
     }
 
+    fn typecheck_function_call(&mut self, 
+        function: &Function, 
+        arguments: &ThinVec<Box<AstNode>>, 
+        generic_args: &ThinVec<Box<Ty>>
+    ) -> Result<Type, TypeError> {
+        if arguments.len() != function.inputs.len() {
+            return Err(TypeError { 
+                message: format!("Expected {} arguments, got {}", function.inputs.len(), arguments.len()) 
+            });
+        }
+        let generic_args: ThinVec<_> = generic_args.iter().map(|ty| P(Type::from(*ty.clone()))).collect();
+        let mut generic_checker = self.copy_env();
+        if generic_args.len() != function.generic_params.len() {
+            // TODO: figure out if we should be able to infer generic arguments
+            return Err(TypeError { 
+                message: format!("Expected {} generic arguments, got {}", function.generic_params.len(), generic_args.len()) 
+            });
+        }
+        let generic_params = function.generic_params.clone();
+        for (generic_arg, generic_param) in generic_args.iter().zip(generic_params.iter()) {
+            match &generic_param.kind {
+                GenericParamKind::Type(Some(box ty)) => {
+                    if **generic_arg != *ty {
+                        return Err(TypeError { 
+                            message: format!("Generic argument type mismatch: expected {:?}, got {:?}", ty, generic_arg) 
+                        });
+                    }
+                    generic_checker.env.insert(generic_param.name.clone(), P(ty.clone()));
+                },
+                GenericParamKind::Type(None) => {
+                    generic_checker.env.insert(generic_param.name.clone(), generic_arg.clone());
+                },
+                GenericParamKind::Const { box ty, value: None } => {
+                    if **generic_arg != *ty {
+                        return Err(TypeError { 
+                            message: format!("Generic argument type mismatch: expected {:?}, got {:?}", ty, generic_arg) 
+                        });
+                    }
+                    generic_checker.env.insert(generic_param.name.clone(), generic_arg.clone());  
+                },
+                GenericParamKind::Const { box ty, value: Some(value) } => {
+                    if **generic_arg != *ty {
+                        return Err(TypeError { 
+                            message: format!("Generic argument type mismatch: expected {:?}, got {:?}", ty, generic_arg) 
+                        });
+                    }
+                    generic_checker.env.insert(generic_param.name.clone(), P(Type::Const(value.clone())));  
+                },
+            }
+        }
+        let return_type = function.output.clone();
+        for (argument, param_type) in arguments.iter().zip(function.inputs.iter()) {
+            let arg_type = generic_checker.infer_type(argument)?;
+            if arg_type != *param_type.ty {
+                return Err(TypeError { 
+                    message: format!("Argument type mismatch: expected {:?}, got {:?}", param_type, arg_type) 
+                });
+            }
+        }
+        Ok(*return_type)
+    }
     /// Checks the types for a binary operation.
     fn typecheck_binary_op(
         &self,
@@ -281,7 +441,9 @@ impl TypeChecker {
                     })
                 }
             }
-            BinaryOperator::Assign => todo!(),
+            BinaryOperator::Assign => {
+                Ok(Type::unit())
+            },
             BinaryOperator::Pipeline => todo!(),
         }
     }
@@ -334,25 +496,30 @@ impl TypeChecker {
 
         Ok(Type::Array(P(first_type)))
     }
+
+    pub fn typecheck_program(&mut self, program: &AstNode) -> Result<(), TypeError> {
+        self.infer_type(program)?;
+        Ok(())
+    }
 }
 
 /// Type checks an AST node.
 pub fn typecheck(ast: &AstNode) -> Result<(), TypeError> {
     let mut checker = TypeChecker::new();
-    //checker.typecheck_program(ast)?;
+    checker.typecheck_program(ast)?;
     Ok(())
 }
 
 pub fn annotation_to_type(annotation: &Option<Box<Ty>>) -> Type {
     match annotation {
-        Some(ty) => Type::from(*ty.clone()),
+        Some(ty) => Type::from(*ty.clone()).normalize(),
         None => Type::Infer,
     }
 }
 
 
 /// Represents a type in the Alloy type system.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Int(IntTy),
     Float, 
@@ -390,6 +557,29 @@ impl Type {
             _ => self
         }
     }
+
+    pub fn normalize(self) -> Self {
+        match self {
+            Type::Simple(name) => match name.as_str() {
+                "int" => Type::Int(IntTy::Int),
+                "float" => Type::Float,
+                "bool" => Type::Bool,
+                "char" => Type::Char,
+                "string" => Type::String,
+                "Array" => Type::Array(P(Type::Infer)),
+                _ => Type::Simple(name),
+            },
+            Type::Generic(name, types) => match name.as_str() {
+                "Array" => {
+                    let elem_type = types.first()
+                        .map(|ty| ty.clone().normalize()).unwrap_or(Type::Infer);
+                    Type::Array(P(elem_type))
+                }
+                _ => Type::Generic(name, types),
+            },
+            _ => self,   
+        }
+    }   
 }
 
 impl From<Ty> for Type {
@@ -402,16 +592,24 @@ impl From<Ty> for Type {
             TyKind::String => Type::String,
             TyKind::Array(ty) => Type::Array(P(Type::from(*ty))),
             TyKind::Path(path) => Type::Path(path),
-            TyKind::Tuple(types) => Type::Tuple(types.into_iter().map(|ty| P(Type::from(*ty))).collect()),   
+            TyKind::Tuple(types) => Type::Tuple(types.into_iter()
+                .map(|ty| P(Type::from(*ty).normalize())).collect()
+            ),   
             TyKind::SizedArray(ty, size) => Type::SizedArray(P(Type::from(*ty)), size),
             TyKind::Function(function) => Type::Function(function.into()),
             TyKind::Const(const_) => Type::Const(const_),   
             TyKind::Algebraic(type_op) => Type::Algebraic(type_op.into()),   
-            TyKind::Generic(name, types) => Type::Generic(name, types.into_iter().map(|ty| P(Type::from(*ty))).collect()),
-            TyKind::Paren(ty) => Type::Paren(P(Type::from(*ty))),
-            TyKind::Ref(kind, ty) => Type::Ref(kind, P(Type::from(*ty))),
-            TyKind::Pattern(ty, pat) => Type::Pattern(P(Type::from(*ty)), P(PatternType::from(*pat))),
-            TyKind::Simple(name) => Type::Simple(name),
+            TyKind::Generic(name, types) => {
+                Type::Generic(name, types.into_iter()
+                    .map(|ty| P(Type::from(*ty).normalize())).collect()
+                ).normalize()
+            },
+            TyKind::Paren(ty) => Type::Paren(P(Type::from(*ty).normalize())),
+            TyKind::Ref(kind, ty) => Type::Ref(kind, P(Type::from(*ty).normalize())),
+            TyKind::Pattern(ty, pat) => {
+                Type::Pattern(P(Type::from(*ty).normalize()), P(PatternType::from(*pat)))
+            },
+            TyKind::Simple(name) => Type::Simple(name).normalize(),
             TyKind::Any => Type::Any,
             TyKind::Infer => Type::Infer,
             TyKind::SelfType => Type::SelfType,
@@ -425,7 +623,7 @@ impl From<FnRetTy> for Type {
     fn from(fn_ret_ty: FnRetTy) -> Self {
         match fn_ret_ty {
             FnRetTy::Infer => Type::Infer,
-            FnRetTy::Ty(ty) => Type::from(*ty),
+            FnRetTy::Ty(ty) => Type::from(*ty).normalize(),
         }
     }
 }
@@ -445,12 +643,18 @@ pub enum AlgebraicType {
 impl From<TypeOp> for AlgebraicType {
     fn from(type_op: TypeOp) -> Self {
         match type_op {
-            TypeOp::And(types) => AlgebraicType::And(types.into_iter().map(|ty| P(Type::from(*ty))).collect()),
-            TypeOp::Or(types) => AlgebraicType::Or(types.into_iter().map(|ty| P(Type::from(*ty))).collect()),
-            TypeOp::Xor(types) => AlgebraicType::Xor(types.into_iter().map(|ty| P(Type::from(*ty))).collect()),
-            TypeOp::Not(ty) => AlgebraicType::Not(P(Type::from(*ty))),
-            TypeOp::Subset(ty) => AlgebraicType::Subset(P(Type::from(*ty))),
-            TypeOp::Implements(ty) => AlgebraicType::Implements(P(Type::from(*ty))),
+            TypeOp::And(types) => AlgebraicType::And(
+                types.into_iter().map(|ty| P(Type::from(*ty).normalize())).collect()
+            ),
+            TypeOp::Or(types) => AlgebraicType::Or(
+                types.into_iter().map(|ty| P(Type::from(*ty).normalize())).collect()
+            ),
+            TypeOp::Xor(types) => AlgebraicType::Xor(
+                types.into_iter().map(|ty| P(Type::from(*ty).normalize())).collect()
+            ),
+            TypeOp::Not(ty) => AlgebraicType::Not(P(Type::from(*ty).normalize())),
+            TypeOp::Subset(ty) => AlgebraicType::Subset(P(Type::from(*ty).normalize())),
+            TypeOp::Implements(ty) => AlgebraicType::Implements(P(Type::from(*ty).normalize())),
         }
     }
 }
@@ -516,7 +720,7 @@ pub struct QualifiedSelf {
 impl From<crate::ty::QualifiedSelf> for QualifiedSelf {
     fn from(qual_self: crate::ty::QualifiedSelf) -> Self {
         QualifiedSelf {
-            ty: P(Type::from(*qual_self.ty)),
+            ty: P(Type::from(*qual_self.ty).normalize()),
         }
     }
 }
@@ -607,10 +811,10 @@ impl From<crate::ty::GenericParamKind> for GenericParamKind {
     fn from(kind: crate::ty::GenericParamKind) -> Self {
         match kind {
             crate::ty::GenericParamKind::Type(ty) => Self::Type(
-                ty.map(|ty| { P(Type::from(*ty)) })
+                ty.map(|ty| { P(Type::from(*ty).normalize()) })
             ),
             crate::ty::GenericParamKind::Const { ty, value } => Self::Const { 
-                ty: P(Type::from(*ty)), value 
+                ty: P(Type::from(*ty).normalize()), value 
             },
         }
     }
@@ -626,7 +830,7 @@ impl From<crate::ty::Param> for Param {
     fn from(param: crate::ty::Param) -> Self {
         Param {
             name: param.name,
-            ty: P(Type::from(*param.ty))
+            ty: P(Type::from(*param.ty).normalize())
         }
     }
 }
