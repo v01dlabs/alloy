@@ -13,24 +13,37 @@ use std::str::Chars;
 pub enum Token {
     // Keywords
     Let,
+    Run,
+    Return,
     Fn,
     If,
+    
     Else,
     While,
+    Loop,
+    Do, // I really miss these in Rust sometimes
     For,
-    Return,
-    Guard,
-    Mut,
-    In,
-    Async,
-    Await,
     Match,
+    Guard,
+    
+    Mut,
+    Async,
+    Shared,
+    Default,
+    In,
+    With,
+    
+    Await,
+    
+    Struct, // ? unsure if keeping
+    Enum, // ? unsure if keeping
+    Union,
+    Type,
+    Effect,
+    Trait,
+    Handler,
 
-    // Types
-    Int,
-    Float,
-    String,
-    Bool,
+    Impl,
 
     // Literals
     Identifier(String),
@@ -58,6 +71,10 @@ pub enum Token {
     Pipeline,
     Increment,
     Decrement,
+    Range,
+
+    Typeof,
+    As,
 
     // Delimiters
     LParen,
@@ -69,10 +86,14 @@ pub enum Token {
     Pipe,
     Comma,
     Dot,
+    QuestionMark,
+    ExclamationPt,
     Colon,
+    PathSep,
     Arrow,
     Semicolon,
     Newline,
+    
 
     // Special
     Eof,
@@ -245,6 +266,8 @@ impl<'a> Lexer<'a> {
             "if" => Token::If,
             "else" => Token::Else,
             "while" => Token::While,
+            "loop" => Token::Loop,
+            // "do" => Token::Do,
             "for" => Token::For,
             "return" => Token::Return,
             "guard" => Token::Guard,
@@ -252,13 +275,25 @@ impl<'a> Lexer<'a> {
             "in" => Token::In,
             "async" => Token::Async,
             "await" => Token::Await,
-            // "int" => Token::Int,
-            // "float" => Token::Float,
-            // "string" => Token::String,
-            // "bool" => Token::Bool,
             "true" => Token::BoolLiteral(true),
             "false" => Token::BoolLiteral(false),
             "match" => Token::Match,
+            "effect" => Token::Effect,
+            "type" => Token::Type,
+            "struct" => Token::Struct,
+            "enum" => Token::Enum,
+            "union" => Token::Union,
+            "trait" => Token::Trait,
+            "impl" => Token::Impl,
+            "handler" => Token::Handler,
+            "typeof" => Token::Typeof,
+            "as" => Token::As,
+            "default" => Token::Default,
+            "shared" => Token::Shared,
+            "run" => Token::Run,
+            "with" => Token::With,
+
+            "\r\n" => Token::Newline, // windows line ending bit awakward here but...
             _ => Token::Identifier(ident.to_string()),
         }
     }
@@ -305,9 +340,12 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 '!' => {
-                    if self.peek() == Some(&'=') {
+                    let next = self.peek();
+                    if next == Some(&'=') {
                         self.advance();
                         Ok(Token::NotEq)
+                    } else if next == Some(&'.') {
+                        Ok(Token::ExclamationPt)
                     } else {
                         Ok(Token::Not)
                     }
@@ -333,6 +371,7 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         Ok(Token::And)
                     } else {
+                        // consider having bitwise operators
                         Err(LexerError::UnexpectedChar(
                             '&',
                             LexerError::to_miette_span(&self.loc()),
@@ -347,7 +386,6 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         Ok(Token::Or)
                     } else {
-                        self.advance();
                         Ok(Token::Pipe)
                     }
                 }
@@ -358,10 +396,28 @@ impl<'a> Lexer<'a> {
                 '[' => Ok(Token::LBracket),
                 ']' => Ok(Token::RBracket),
                 ',' => Ok(Token::Comma),
-                '.' => Ok(Token::Dot),
-                ':' => Ok(Token::Colon),
+                '.' => {
+                    let next = self.peek();
+                    if next == Some(&'.') {
+                        self.advance();
+                        Ok(Token::Range)
+                    } else {
+                        Ok(Token::Dot)
+                    }
+                }
+                ':' => {
+                    let next = self.peek();
+                    if next == Some(&':') {
+                        self.advance();
+                        Ok(Token::PathSep)
+                    } else {
+                        Ok(Token::Colon)
+                    }
+                },
                 ';' => Ok(Token::Semicolon),
+                '?' => Ok(Token::QuestionMark),
                 '\n' => Ok(Token::Newline),
+                
                 _ => Err(LexerError::UnexpectedChar(
                     c,
                     LexerError::to_miette_span(&self.loc()),

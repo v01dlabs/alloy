@@ -175,3 +175,35 @@ pub enum Literal {
     Bool(bool),
     Char(char),
 }
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum IntKind {
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    Int,
+    
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UintKind {
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
+    Uint,
+    Byte,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FloatKind {
+    Float,
+    F32,
+    F64,
+}
