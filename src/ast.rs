@@ -2,7 +2,7 @@
 use thin_vec::ThinVec;
 
 use crate::lexer::Token;
-use crate::ty::{Const, Function, Ident, Ty};
+use crate::ty::{Function, Ident, Ty};
 
 #[allow(non_snake_case)]
 pub fn P<T: 'static>(value: T) -> Box<T> {
@@ -10,7 +10,7 @@ pub fn P<T: 'static>(value: T) -> Box<T> {
 }
 
 /// Represents the precedence levels for operators.
-#[derive(Debug, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum Precedence {
     None,
     Assignment, // =
@@ -27,12 +27,14 @@ pub enum Precedence {
 }
 
 impl Precedence {
-    fn from_token(token: &Token) -> Precedence {
+
+    #[inline]
+    pub fn from_token(token: &Token) -> Precedence {
         match token {
             Token::Eq | Token::NotEq => Precedence::Equality,
             Token::Lt | Token::LtEq | Token::Gt | Token::GtEq => Precedence::Comparison,
             Token::Plus | Token::Minus => Precedence::Term,
-            Token::Multiply | Token::Divide => Precedence::Factor,
+            Token::Multiply | Token::Divide | Token::Modulo => Precedence::Factor,  
             Token::Not => Precedence::Unary,
             Token::And => Precedence::And,
             Token::Or => Precedence::Or,
@@ -115,7 +117,7 @@ pub enum AstNode {
 }
 
 /// Represents binary operators in Alloy.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOperator {
     Add,
     Subtract,
@@ -132,10 +134,35 @@ pub enum BinaryOperator {
     Or,
     Assign,
     Pipeline,
+} 
+
+impl BinaryOperator {
+
+    #[inline]
+    pub fn from_token(token: &Token) -> Option<BinaryOperator> {
+        match token {
+            Token::Plus => Some(BinaryOperator::Add),
+            Token::Minus => Some(BinaryOperator::Subtract),
+            Token::Multiply => Some(BinaryOperator::Multiply),
+            Token::Divide => Some(BinaryOperator::Divide),
+            Token::Modulo => Some(BinaryOperator::Modulo),
+            Token::Eq => Some(BinaryOperator::Equal),
+            Token::NotEq => Some(BinaryOperator::NotEqual),
+            Token::Lt => Some(BinaryOperator::LessThan),
+            Token::Gt => Some(BinaryOperator::GreaterThan),
+            Token::LtEq => Some(BinaryOperator::LessThanOrEqual),
+            Token::GtEq => Some(BinaryOperator::GreaterThanOrEqual),
+            Token::And => Some(BinaryOperator::And),
+            Token::Or => Some(BinaryOperator::Or),
+            Token::Assign => Some(BinaryOperator::Assign),
+            Token::Pipeline => Some(BinaryOperator::Pipeline),
+            _ => None,
+        }
+    }
 }
 
 /// Represents unary operators in Alloy.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnaryOperator {
     Negate,
     Not,

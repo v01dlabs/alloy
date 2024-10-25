@@ -620,20 +620,15 @@ impl Parser {
 
     /// Parses an infix expression.
     fn parse_infix(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
-        match self.peek() {
-            Some(Token::Plus) | Some(Token::Minus) => self.parse_binary(left, Precedence::Term),
-            Some(Token::Multiply) | Some(Token::Divide) | Some(Token::Modulo) => {
-                self.parse_binary(left, Precedence::Factor)
-            }
-            Some(Token::Eq) | Some(Token::NotEq) => self.parse_binary(left, Precedence::Equality),
-            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => {
-                self.parse_binary(left, Precedence::Comparison)
-            }
-            Some(Token::And) => self.parse_binary(left, Precedence::And),
-            Some(Token::Or) => self.parse_binary(left, Precedence::Or),
-            Some(Token::Assign) => self.parse_assignment(left),
-            Some(Token::Pipeline) => self.parse_pipeline(left),
-            Some(Token::LParen) => self.parse_function_call(left),
+        let prec = self.peek()
+            .map_or_else(|| Precedence::None, |t| Precedence::from_token(t));
+        match prec {
+            Precedence::Term | Precedence::Factor 
+            | Precedence::Equality | Precedence::Or | Precedence::And 
+            | Precedence::Comparison => self.parse_binary(left, prec),
+            Precedence::Assignment => self.parse_assignment(left),
+            Precedence::Pipeline => self.parse_pipeline(left),
+            Precedence::Call => self.parse_function_call(left),
             _ => Ok(left),
         }
     }
@@ -678,27 +673,10 @@ impl Parser {
 
     /// Converts a token to a binary operator.
     fn token_to_binary_operator(&self, token: Token) -> Result<BinaryOperator, ParserError> {
-        match token {
-            Token::Plus => Ok(BinaryOperator::Add),
-            Token::Minus => Ok(BinaryOperator::Subtract),
-            Token::Multiply => Ok(BinaryOperator::Multiply),
-            Token::Modulo => Ok(BinaryOperator::Modulo),
-            Token::Divide => Ok(BinaryOperator::Divide),
-            Token::Eq => Ok(BinaryOperator::Equal),
-            Token::NotEq => Ok(BinaryOperator::NotEqual),
-            Token::Lt => Ok(BinaryOperator::LessThan),
-            Token::Gt => Ok(BinaryOperator::GreaterThan),
-            Token::LtEq => Ok(BinaryOperator::LessThanOrEqual),
-            Token::GtEq => Ok(BinaryOperator::GreaterThanOrEqual),
-            Token::And => Ok(BinaryOperator::And),
-            Token::Or => Ok(BinaryOperator::Or),
-            Token::Assign => Ok(BinaryOperator::Assign),
-            Token::Pipeline => Ok(BinaryOperator::Pipeline),
-            _ => Err(ParserError::UnexpectedToken(format!(
-                "Unexpected token for binary operator: {:?}",
-                token
-            ))),
-        }
+        BinaryOperator::from_token(&token).ok_or(ParserError::UnexpectedToken(format!(
+            "Unexpected token for binary operator: {:?}",
+            token
+        )))
     }
 
     /// Parses function arguments.
@@ -720,17 +698,7 @@ impl Parser {
     /// Gets the precedence of the current token.
     fn get_precedence(&mut self) -> Precedence {
         match self.peek() {
-            Some(Token::Assign) => Precedence::Assignment,
-            Some(Token::Pipeline) => Precedence::Pipeline,
-            Some(Token::Or) => Precedence::Or,
-            Some(Token::And) => Precedence::And,
-            Some(Token::Eq) | Some(Token::NotEq) => Precedence::Equality,
-            Some(Token::Lt) | Some(Token::Gt) | Some(Token::LtEq) | Some(Token::GtEq) => {
-                Precedence::Comparison
-            }
-            Some(Token::Plus) | Some(Token::Minus) => Precedence::Term,
-            Some(Token::Multiply) | Some(Token::Divide) | Some(Token::Modulo) => Precedence::Factor,
-            Some(Token::LParen) => Precedence::Call,
+            Some(tok) => Precedence::from_token(tok),
             _ => Precedence::None,
         }
     }

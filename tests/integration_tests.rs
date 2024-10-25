@@ -71,6 +71,16 @@ fn test_typecheck_complex_program() {
         "#;
     let tokens = Lexer::tokenize(code).unwrap();
     let mut parser = Parser::new(tokens);
-    let ast = parser.parse().unwrap();
-    assert!(typecheck(&ast).is_ok());
+    let ast = parser.parse();
+    assert!(
+        ast.is_ok(),
+        "Failed to parse complex program: {}",
+        ast.unwrap_err()
+    );
+    let check_result = typecheck(&ast.unwrap());
+    assert!(
+        check_result.is_ok(),
+        "Failed to typecheck complex program: {}",
+        check_result.unwrap_err()
+    );
 }
