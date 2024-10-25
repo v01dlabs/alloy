@@ -35,7 +35,7 @@ fn test_parse_variable_declaration() {
     assert!(matches!(result,
         Ok(box AstNode::VariableDeclaration {
             name,
-            mutable: _,
+            attrs: _,
             type_annotation: Some(box Ty { kind: TyKind::Simple(type_name) }),
             initializer: Some(box AstNode::IntLiteral(5))
         }) if name == "x" && type_name == "int"
@@ -75,6 +75,7 @@ fn test_parse_function_declaration() {
     match result {
         box AstNode::FunctionDeclaration {
             name,
+            attrs: _,
             function:
                 Function {
                     generic_params,
@@ -357,7 +358,7 @@ fn test_parse_generic_type_annotation() {
     );
     if let Ok(box AstNode::VariableDeclaration {
         name,
-        mutable: _,
+        attrs: _,
         type_annotation,
         initializer,
     }) = result
@@ -394,7 +395,7 @@ fn test_parse_nested_generic_type_annotation() {
     assert!(matches!(result,
         box AstNode::VariableDeclaration {
             name,
-            mutable: _,
+            attrs: _,
             type_annotation: Some(box Ty { kind: TyKind::Generic(base_type, params) }),
             initializer: None
         } if name == "x" && base_type == "Map" && params.len() == 2
@@ -414,6 +415,7 @@ fn test_parse_function_with_generic_return_type() {
     );
     if let Ok(box AstNode::FunctionDeclaration {
         name,
+        attrs: _,
         function:
             Function {
                 generic_params,

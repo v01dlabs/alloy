@@ -32,6 +32,7 @@ pub enum Token {
     Default,
     In,
     With,
+    Where,
     
     Await,
     

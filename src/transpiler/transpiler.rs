@@ -8,7 +8,7 @@
 use thin_vec::ThinVec;
 
 use crate::{
-    ast::{ty::{Const, FnRetTy, IntTy, Ty}, AstNode, BinaryOperator, UnaryOperator},
+    ast::{ty::{Const, FnRetTy, IntTy, Mutability, Ty}, AstNode, BinaryOperator, UnaryOperator},
     type_checker::{Param, Type},
 };
 
@@ -36,6 +36,7 @@ impl Transpiler {
             AstNode::Program(statements) => self.transpile_program(&statements[..]),
             AstNode::FunctionDeclaration {
                 name,
+                attrs,
                 body,
                 function,
             } => self.transpile_function(
@@ -50,12 +51,12 @@ impl Transpiler {
             ),
             AstNode::VariableDeclaration {
                 name,
-                mutable,
+                    attrs,
                 type_annotation,
                 initializer,
             } => self.transpile_variable_declaration(
                 name,
-                *mutable,
+                attrs.first().map_or(false, |attr| attr.mutability == Mutability::Mut),
                 &type_annotation
                     .as_ref()
                     .map(|ty| Type::from(*ty.clone())),
@@ -105,11 +106,33 @@ impl Transpiler {
             } => todo!(),
             AstNode::TrailingClosure { callee, closure } => todo!(),
             AstNode::PipelineOperation { left, right } => todo!(),
-            AstNode::EffectDeclaration { name, generic_params, members } => todo!(),
-            AstNode::StructDeclaration { name, generic_params, members } => todo!(),
-            AstNode::EnumDeclaration { name, generic_params, variants } => todo!(),
-            AstNode::TraitDeclaration { name, generic_params, members } => todo!(),
-            AstNode::UnionDeclaration { name, generic_params, members } => todo!(),
+            AstNode::EffectDeclaration { 
+                name, generic_params,
+                where_clause, bounds, members } => todo!(),
+            AstNode::StructDeclaration { 
+                name, generic_params, 
+                where_clause, members 
+            } => todo!(),
+            AstNode::EnumDeclaration { 
+                name, generic_params, 
+                where_clause, variants 
+            } => todo!(),
+            AstNode::TraitDeclaration { 
+                name, generic_params, 
+                bounds, where_clause, members 
+            } => todo!(),
+            AstNode::UnionDeclaration { 
+                name, generic_params, 
+                bounds, where_clause 
+            } => todo!(),
+            AstNode::ImplDeclaration { 
+                name, generic_params, 
+                kind, 
+                target, target_generic_params, 
+                where_clause,
+                bounds, members 
+            } => todo!(),
+            AstNode::WithClause(items) => todo!(),
         }
     }
 

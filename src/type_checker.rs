@@ -9,10 +9,8 @@ use thin_vec::{thin_vec, ThinVec};
 use crate::{
     ast::{
         ty::{
-            AttrItem, BindingMode, Const, FnRetTy, Ident, IntTy, PatField, Path, Pattern, PatternKind,
-            RefKind, Ty, TyKind, TypeOp,
-        }, 
-        AstNode, BinaryOperator, UnaryOperator, P
+            AttrItem, BindingMode, Const, FnRetTy, Ident, IntTy, Mutability, PatField, Path, Pattern, PatternKind, RefKind, Ty, TyKind, TypeOp
+        }, AstNode, BinaryOperator, BindAttr, UnaryOperator, P
     },
     error::TypeError,
 };
@@ -21,7 +19,7 @@ use std::collections::HashMap;
 
 
 /// The type environment stores variable and function types.
-type TypeEnv = HashMap<String, Box<Type>>;
+type TypeEnv = HashMap<String, Box<TypeBinding>>;
 
 /// The main type checker struct.
 pub struct TypeChecker {
@@ -46,7 +44,7 @@ impl TypeChecker {
 
     pub fn add_anon_type(&mut self, ty: &Type) {
         let new_name = self.new_name();
-        self.env.insert(new_name, P(ty.clone()));
+        self.env.insert(new_name, P(TypeBinding::variable(ty.clone(), BindAttr::new(false, None))));
     }
 
     pub fn copy_env(&self) -> Self {
@@ -56,7 +54,22 @@ impl TypeChecker {
         }
     }
 
-    pub fn resolve_ident(&self, ident: &Ident) -> Result<Box<Type>, TypeError> {
+    pub fn insert_variable(&mut self, name: &String, ty: &Type, binding: BindAttr) {
+        self.env.insert(name.clone(), P(TypeBinding::variable(ty.clone(), binding)));
+    }
+
+    pub fn insert_type(&mut self, name: &String, ty: &Type) {
+        self.env.insert(name.clone(), P(TypeBinding::new(ty.clone(), Binding {
+            visibility: Visibility::Local(None),
+            ty: BindingType::Value(BindAttr::new(false, None)),
+        })));
+    }
+
+    pub fn insert_function(&mut self, name: &String, ty: &Type, fn_attr: FnAttr, visibility: Option<Visibility>) {
+        self.env.insert(name.clone(), P(TypeBinding::function(ty.clone(), fn_attr, visibility)));
+    }
+
+    pub fn resolve_ident(&self, ident: &Ident) -> Result<Box<TypeBinding>, TypeError> {
         match self.env.get(ident) {
             Some(ty) => Ok(P(*ty.clone())),
             None => Err(TypeError {
@@ -67,10 +80,17 @@ impl TypeChecker {
 
     pub fn resolve_function(&self, name: &Ident) -> Result<Box<Type>, TypeError> {
         match self.env.get(name) {
-            Some(ty) => match ty.clone() {
-                box Type::Function(_) => Ok(P(*ty.clone())),
-                _ => Err(TypeError {
-                    message: format!("Expected function, got {:?}", ty),
+            Some(ty) => match &ty.binding.ty {
+                BindingType::Function(fn_attr) => {
+                    match ty.ty.clone() {
+                        Type::Function(f) => Ok(P(Type::Function(f))),
+                        _ => Err(TypeError {
+                            message: format!("Expected function, got {:?}", ty),
+                        }),
+                    }
+                },
+                e => Err(TypeError {
+                    message: format!("Expected function, got {:?}", e),
                 }),
             },
             None => Err(TypeError {
@@ -90,6 +110,7 @@ impl TypeChecker {
             }
             AstNode::FunctionDeclaration {
                 name,
+                attrs,
                 function:
                     crate::ast::ty::Function {
                         generic_params,
@@ -103,18 +124,14 @@ impl TypeChecker {
                     match &generic_param.kind {
                         crate::ast::ty::GenericParamKind::Type(Some(box ty)) => {
                             let ty = P(Type::from(ty.clone()));
-                            fn_checker
-                                .env
-                                .insert(generic_param.name.clone(), ty.clone());
+                            fn_checker.insert_type(&generic_param.name, &ty);
                         }
                         crate::ast::ty::GenericParamKind::Type(None) => {
-                            fn_checker
-                                .env
-                                .insert(generic_param.name.clone(), P(Type::Infer));
+                            fn_checker.insert_type(&generic_param.name, &Type::Infer);
                         }
                         crate::ast::ty::GenericParamKind::Const { box ty, .. } => {
                             let ty = P(Type::from(ty.clone()));
-                            fn_checker.env.insert(generic_param.name.clone(), ty);
+                            fn_checker.insert_type(&generic_param.name, &ty);
                         }
                     }
                 }
@@ -122,7 +139,7 @@ impl TypeChecker {
                     .iter()
                     .map(|param| {
                         let ty = P(Type::from(*param.ty.clone()));
-                        fn_checker.env.insert(param.name.clone(), ty.clone());
+                        fn_checker.insert_type(&param.name, &ty);
                         ty
                     })
                     .collect();
@@ -148,6 +165,7 @@ impl TypeChecker {
                     let statement_type = fn_checker.infer_type(statement)?;
                     fn_checker.add_anon_type(&statement_type);
                 }
+                let attrs = FnAttr::from_list(attrs);
                 let fn_type = Type::Function(Function {
                     generic_params: generic_params.clone().into_iter().map(Into::into).collect(),
                     inputs: inputs
@@ -158,23 +176,25 @@ impl TypeChecker {
                             ty: P(*t2.clone()),
                         })
                         .collect(),
+                    // TODO: Placeholder for now  
+                    attrs: attrs.clone(),
                     output: P(return_type),
                 });
-                self.env.insert(name.clone(), P(fn_type.clone()));
+                self.insert_function(&name, &fn_type, attrs, None);
                 Ok(fn_type)
             }
             AstNode::VariableDeclaration {
                 name,
-                mutable,
+                attrs,
                 type_annotation,
                 initializer,
             } => {
-                // TODO: handle mutability
+                let bind_attr = BindAttr::from_list(attrs);
                 let var_type = annotation_to_type(type_annotation);
                 if let Some(initializer) = initializer {
                     if var_type == Type::Infer {
                         let inferred_type = self.infer_type(initializer)?;
-                        self.env.insert(name.clone(), P(inferred_type.clone()));
+                        self.insert_variable(&name, &inferred_type, bind_attr);
                         Ok(inferred_type)
                     } else {
                         let inferred_type = self.infer_type(initializer)?;
@@ -186,7 +206,7 @@ impl TypeChecker {
                                 ),
                             })
                         } else if inferred_type == var_type {
-                            self.env.insert(name.clone(), P(var_type.clone()));
+                            self.insert_variable(&name, &inferred_type, bind_attr);
                             Ok(var_type)
                         } else {
                             // currently an error, but we can likely recover by inferring the type from other usages
@@ -199,7 +219,7 @@ impl TypeChecker {
                         }
                     }
                 } else {
-                    self.env.insert(name.clone(), P(var_type.clone()));
+                    self.insert_variable(&name, &var_type, bind_attr);
                     Ok(var_type)
                 }
             }
@@ -253,7 +273,9 @@ impl TypeChecker {
                 let iter_type = self.infer_type(iterable)?;
                 if let Type::Array(ty) = iter_type {
                     let mut loop_checker = self.copy_env();
-                    loop_checker.env.insert(item.clone(), ty.clone());
+                    loop_checker.insert_variable(&item, &ty, 
+                        BindAttr::new(false, Some(RefKind::Sync(Mutability::Not)))
+                    );
                     loop_checker.infer_type(body)
                 } else {
                     // For now until we have other things to iterate over
@@ -339,9 +361,7 @@ impl TypeChecker {
                 generic_args,
                 arguments,
             } => {
-                let callee_type = self.env.get(name).cloned().ok_or(TypeError {
-                    message: format!("Undefined function {}", name),
-                })?;
+                let callee_type = self.resolve_function(name)?;
                 match *callee_type {
                     Type::Function(function) => {
                         self.typecheck_function_call(&function, arguments, generic_args)
@@ -364,9 +384,7 @@ impl TypeChecker {
                         // Currently assuming the last argument is the closure, as in Kotlin
                         full_args.push(closure.clone());
                         generic_arguments.append(&mut generic_args.clone());
-                        self.env.get(name).cloned().ok_or(TypeError {
-                            message: format!("Undefined function {}", name),
-                        })?
+                        self.resolve_function(name)?
                     }
                     box AstNode::FunctionCall {
                         ref callee,
@@ -378,9 +396,7 @@ impl TypeChecker {
                         P(self.infer_type(callee)?)
                     }
                     box AstNode::Identifier(ref name) => {
-                        self.env.get(name).cloned().ok_or(TypeError {
-                            message: format!("Undefined function {}", name),
-                        })?
+                        P(self.resolve_ident(name)?.ty)
                     }
                     box ref e => {
                         return Err(TypeError {
@@ -408,20 +424,40 @@ impl TypeChecker {
                 Ok(right_type)
             }
             AstNode::Identifier(ident) => {
-                self.env.get(ident).cloned().map(|ty| *ty).ok_or(TypeError {
-                    message: format!("Undefined variable {}", ident),
-                })
+                Ok(self.resolve_ident(ident)?.ty)
             }
             AstNode::IntLiteral(_) => Ok(Type::Int(IntTy::Int)),
             AstNode::FloatLiteral(_) => Ok(Type::Float),
             AstNode::StringLiteral(_) => Ok(Type::String),
             AstNode::BoolLiteral(_) => Ok(Type::Bool),
             AstNode::ArrayLiteral(elements) => self.typecheck_array_literal(elements),
-            AstNode::EffectDeclaration { name, generic_params, members } => todo!(),
-            AstNode::StructDeclaration { name, generic_params, members } => todo!(),
-            AstNode::EnumDeclaration { name, generic_params, variants } => todo!(),
-            AstNode::TraitDeclaration { name, generic_params, members } => todo!(),
-            AstNode::UnionDeclaration { name, generic_params, members } => todo!(),
+            AstNode::EffectDeclaration { 
+                name, generic_params,
+                where_clause, bounds, members } => todo!(),
+            AstNode::StructDeclaration { 
+                name, generic_params, 
+                where_clause, members 
+            } => todo!(),
+            AstNode::EnumDeclaration { 
+                name, generic_params, 
+                where_clause, variants 
+            } => todo!(),
+            AstNode::TraitDeclaration { 
+                name, generic_params, 
+                bounds, where_clause, members 
+            } => todo!(),
+            AstNode::UnionDeclaration { 
+                name, generic_params, 
+                bounds, where_clause 
+            } => todo!(),
+            AstNode::ImplDeclaration { 
+                name, generic_params, 
+                kind, 
+                target, target_generic_params, 
+                where_clause,
+                bounds, members 
+            } => todo!(),
+            AstNode::WithClause(items) => todo!(),
         }
     }
 
@@ -467,14 +503,10 @@ impl TypeChecker {
                             ),
                         });
                     }
-                    generic_checker
-                        .env
-                        .insert(generic_param.name.clone(), P(ty.clone()));
+                    generic_checker.insert_type(&generic_param.name, &ty);
                 }
                 GenericParamKind::Type(None) => {
-                    generic_checker
-                        .env
-                        .insert(generic_param.name.clone(), generic_arg.clone());
+                    generic_checker.insert_type(&generic_param.name, &Type::Infer);
                 }
                 GenericParamKind::Const {
                     box ty,
@@ -488,9 +520,7 @@ impl TypeChecker {
                             ),
                         });
                     }
-                    generic_checker
-                        .env
-                        .insert(generic_param.name.clone(), generic_arg.clone());
+                    generic_checker.insert_type(&generic_param.name, &ty);
                 }
                 GenericParamKind::Const {
                     box ty,
@@ -504,9 +534,7 @@ impl TypeChecker {
                             ),
                         });
                     }
-                    generic_checker
-                        .env
-                        .insert(generic_param.name.clone(), P(Type::Const(value.clone())));
+                    generic_checker.insert_type(&generic_param.name, &P(Type::Const(value.clone())));
                 }
             }
         }
@@ -663,6 +691,57 @@ pub fn annotation_to_type(annotation: &Option<Box<Ty>>) -> Type {
         Some(ty) => Type::from(*ty.clone()).normalize(),
         None => Type::Infer,
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeBinding {
+    pub ty: Type,
+    pub binding: Binding,
+}
+
+impl TypeBinding {
+    pub fn new(ty: Type, binding: Binding) -> Self {
+        TypeBinding {
+            ty,
+            binding,
+        }
+    }
+
+    pub fn variable(ty: Type, binding: BindAttr) -> Self {
+        TypeBinding::new(ty, Binding {
+            visibility: Visibility::Local(None),
+            ty: BindingType::Value(binding),
+        })
+    }
+
+    pub fn function(ty: Type, binding: FnAttr, visibility: Option<Visibility>) -> Self {
+        TypeBinding::new(ty, Binding {
+            visibility: visibility.unwrap_or(Visibility::Private),    
+            ty: BindingType::Function(binding),
+        })
+    }
+
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Binding {
+    pub visibility: Visibility,
+    pub ty: BindingType,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BindingType {
+    Value(BindAttr),
+    Ref(RefKind, BindAttr),
+    Function(FnAttr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Visibility {
+    Local(Option<Path>),
+    Public,
+    Private,
+    CrateLevel
 }
 
 /// Represents a type in the Alloy type system.
@@ -932,6 +1011,7 @@ impl From<PatField> for PatternField {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub generic_params: ThinVec<GenericParam>,
+    pub attrs: FnAttr,
     pub inputs: ThinVec<Param>,
     pub output: Box<Type>,
 }
@@ -945,7 +1025,54 @@ impl From<crate::ast::ty::Function> for Function {
                 .map(Into::into)
                 .collect(),
             inputs: function.inputs.into_iter().map(Into::into).collect(),
+            attrs: FnAttr {
+                is_async: false,
+                is_shared: false,
+                effects: ThinVec::new(),
+            },
             output: P(Type::from(function.output)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FnAttr {
+    pub is_async: bool,
+    pub is_shared: bool,
+    pub effects: ThinVec<Box<WithClauseItem>>,  
+}
+
+impl FnAttr {
+    pub fn from_list(attrs: &[crate::ast::FnAttr]) -> Self {    
+        let mut is_async = false;
+        let mut is_shared = false;
+        let mut effects = ThinVec::new();   
+        for attr in attrs {
+            is_async = is_async || attr.is_async;
+            is_shared = is_shared || attr.is_shared;
+            let mut e: ThinVec<_> = attr.effects.iter().map(|e| P(WithClauseItem::from(*e.clone()))).collect();
+            effects.append(&mut e);
+        }
+        FnAttr {
+            is_async,
+            is_shared,
+            effects,
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WithClauseItem {
+    Generic(GenericParam),
+    Algebraic(AlgebraicType),
+}
+
+impl From<crate::ast::WithClauseItem> for WithClauseItem {
+    fn from(item: crate::ast::WithClauseItem) -> Self {
+        match item {
+            crate::ast::WithClauseItem::Generic(generic_param) => WithClauseItem::Generic(GenericParam::from(generic_param)),
+            crate::ast::WithClauseItem::Algebraic(op) => WithClauseItem::Algebraic(AlgebraicType::from(op)),    
         }
     }
 }

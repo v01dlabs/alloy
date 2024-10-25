@@ -4,12 +4,12 @@
 //! and constructing an Abstract Syntax Tree (AST) that represents the structure
 //! of an Alloy program.
 
-use thin_vec::ThinVec;
+use thin_vec::{thin_vec, ThinVec};
 
-use crate::ast::{AstNode, BinaryOperator, Precedence, P};
+use crate::ast::{AstNode, FnAttr, BinaryOperator, BindAttr, ImplKind, Precedence, P};
 use crate::error::ParserError;
 use crate::lexer::Token;
-use crate::ast::ty::{FnRetTy, Function, GenericParam, Ident, Param, Ty, TyKind};
+use crate::ast::ty::{ FnRetTy, Function, GenericParam, Ident, Param, Ty, TyKind, TypeOp};
 use itertools::{Itertools, MultiPeek};
 use std::iter::Peekable;
 use std::vec::IntoIter;
@@ -135,6 +135,9 @@ impl Parser {
         }
     }
 
+    fn consume_newlines(&mut self) {
+        while self.consume_if(&Token::Newline) {}
+    }
     /// Parses the entire program.
     pub fn parse(&mut self) -> Result<Box<AstNode>, ParserError> {
         let mut declarations = ThinVec::new();
@@ -198,12 +201,13 @@ impl Parser {
         let declaration = match next {
             Some(Token::Let) => self.parse_variable_declaration(),
             Some(Token::Fn) => self.parse_function_declaration(),
-            Some(Token::Effect) => todo!(),
-            Some(Token::Struct) => todo!(),
-            Some(Token::Enum) => todo!(),
-            Some(Token::Union) => todo!(),
-            Some(Token::Trait) => todo!(),
-            Some(Token::Handler) => todo!(),
+            Some(Token::Effect) => self.parse_effect_decl(),
+            Some(Token::Struct) => self.parse_struct_decl(),
+            Some(Token::Enum) => self.parse_enum_decl(),
+            Some(Token::Union) => self.parse_union_decl(),
+            Some(Token::Trait) => self.parse_trait_decl(),
+            Some(Token::Handler) => self.parse_handler_decl(),
+            Some(Token::Impl) => self.parse_impl_decl(),
             Some(Token::Shared) => todo!(),
             _ => self.parse_statement(),
         };
@@ -226,6 +230,321 @@ impl Parser {
     /// Parses a function declaration.
     fn parse_function_declaration(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Fn)?;
+        self.finish_fn_declaration()
+    }
+
+    fn parse_struct_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        let (name, generic_params) = self.parse_delc_start()?;
+        self.consume_newlines(); 
+        let mut members = ThinVec::new();
+        let next = self.peek();
+        
+        if next == Some(&Token::LParen) {
+            self.parse_tuple_struct_decl(name, generic_params)
+        } else {
+            if self.is_marker()? {
+                return Ok(P(AstNode::StructDeclaration {
+                    name,
+                    generic_params,
+                    where_clause: ThinVec::new(),
+                    members,
+                }));
+            }
+            self.consume(&Token::LBrace)?;
+            loop {
+                self.consume_newlines();
+                if self.consume_if(&Token::RBrace) {
+                    break;
+                }
+                members.push(self.parse_member(ImplKind::Struct)?);
+            }
+            Ok(P(AstNode::StructDeclaration {
+                name,
+                generic_params,
+                where_clause: ThinVec::new(),
+                members,
+            }))
+        }
+
+    }
+
+    fn parse_tuple_struct_decl(&mut self, name: Ident, generic_params: ThinVec<GenericParam>) -> Result<Box<AstNode>, ParserError> {
+        let mut params = ThinVec::new();
+        let mut index = 0;
+        self.consume(&Token::LParen)?;
+        self.consume_newlines();
+        while !self.check(&Token::RParen) {
+            // TODO: need to add visibility here and elsewhere
+            let name = format!("{}", index);
+            index += 1;
+            let type_annotation = self.parse_type_annotation()?;
+            params.push(P(AstNode::VariableDeclaration {
+                name,
+                attrs: ThinVec::new(),
+                type_annotation: Some(type_annotation),
+                initializer: None,
+            }));
+            if !self.consume_if(&Token::Comma) {
+                break;
+            }
+        }
+        Ok(P(AstNode::StructDeclaration {
+            name,
+            generic_params,
+            where_clause: ThinVec::new(),
+            members: params,
+        }))
+    }
+
+    fn parse_enum_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        let (name, generic_params) = self.parse_delc_start()?;
+        self.consume_newlines();
+        let mut variants = ThinVec::new();
+        self.consume(&Token::LBrace)?;
+        loop {
+            self.consume_newlines();
+            if self.consume_if(&Token::RBrace) {
+                break;
+            }
+            variants.push(self.parse_enum_variant()?);
+        }
+        Ok(P(AstNode::EnumDeclaration {
+            name,
+            generic_params,
+            where_clause: ThinVec::new(),
+            variants,
+        }))
+    }
+
+    fn parse_trait_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        let (name, generic_params) = self.parse_delc_start()?;
+        self.consume_newlines();
+        let mut bounds = None;
+        if self.consume_if(&Token::Colon) || self.consume_if(&Token::Assign) {
+            bounds = Some(self.parse_type_op()?);
+        }
+        if self.is_marker()? {  
+            return Ok(P(AstNode::TraitDeclaration {
+                name,
+                generic_params,
+                bounds,
+                where_clause: ThinVec::new(),
+                members: ThinVec::new(),
+            }));
+        }
+        let mut members = ThinVec::new();
+        self.consume(&Token::LBrace)?;
+        loop {
+            self.consume_newlines();
+            if self.consume_if(&Token::RBrace) {
+                break;
+            }
+            members.push(self.parse_member(ImplKind::Trait)?);
+        }
+        Ok(P(AstNode::TraitDeclaration {
+            name,
+            generic_params,
+            bounds,
+            where_clause: ThinVec::new(),
+            members,
+        }))
+    }
+
+    fn parse_union_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        let (name, generic_params) = self.parse_delc_start()?;
+        self.consume_newlines();
+        todo!()
+    }
+
+    fn parse_effect_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        let (name, generic_params) = self.parse_delc_start()?;
+        self.consume_newlines();
+        let mut bounds = None;
+        if self.consume_if(&Token::Colon) {
+            bounds = Some(self.parse_type_op()?);
+        }
+        let mut members = ThinVec::new();
+        if self.is_marker()? {  
+            return Ok(P(AstNode::EffectDeclaration {
+                name,
+                generic_params,
+                bounds,
+                where_clause: ThinVec::new(),
+                members,
+            }));
+        }
+        self.consume(&Token::LBrace)?;
+        loop {
+            self.consume_newlines();
+            if self.consume_if(&Token::RBrace) {
+                break;
+            }
+            members.push(self.parse_effect_member()?);
+        }
+        Ok(P(AstNode::EffectDeclaration {
+            name,
+            generic_params,
+            bounds,
+            where_clause: ThinVec::new(),
+            members,
+        }))
+    }
+
+    fn parse_handler_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        // do we need additional generics here?
+        let (name, generic_params) = self.parse_delc_start()?;
+        self.consume_newlines();
+        self.consume(&Token::For)?;
+        let (target, target_generic_params) = self.parse_delc_start()?;
+        self.consume_newlines();
+        let mut bounds = None;
+        if self.consume_if(&Token::Colon) {
+            bounds = Some(self.parse_type_op()?);
+        }
+        let mut members = ThinVec::new();
+        if self.is_marker()? {  
+            return Ok(P(AstNode::ImplDeclaration {
+                name,
+                generic_params,
+                kind: ImplKind::Handler,
+                target,
+                target_generic_params,
+                where_clause: ThinVec::new(),
+                bounds,
+                members,
+            }));
+        }
+        self.consume(&Token::LBrace)?;
+        loop {
+            self.consume_newlines();
+            if self.consume_if(&Token::RBrace) {
+                break;
+            }
+            members.push(self.parse_member(ImplKind::Handler)?);
+        }
+        Ok(P(AstNode::ImplDeclaration {
+            name,
+            generic_params,
+            kind: ImplKind::Handler,
+            target,
+            target_generic_params,
+            where_clause: ThinVec::new(),
+            bounds,
+            members,
+        }))
+    }
+
+    /// Parses a declaration for an implementation of a trait, struct, enum, etc.
+    /// We can't distinguish them at this stage, that will happen later
+    fn parse_impl_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        // do we need additional generics here?
+        let (name, generic_params) = self.parse_delc_start()?;
+        self.consume_newlines();
+        self.consume(&Token::For)?;
+        let (target, target_generic_params) = self.parse_delc_start()?;
+        self.consume_newlines();
+        let mut bounds = None;
+        if self.consume_if(&Token::Colon) {
+            bounds = Some(self.parse_type_op()?);
+        }
+        let mut members = ThinVec::new();
+        if self.is_marker()? {  
+            return Ok(P(AstNode::ImplDeclaration {
+                name,
+                generic_params,
+                kind: ImplKind::Infer,
+                target,
+                target_generic_params,
+                where_clause: ThinVec::new(),
+                bounds,
+                members,
+            }));
+        }
+        self.consume(&Token::LBrace)?;
+        loop {
+            self.consume_newlines();
+            if self.consume_if(&Token::RBrace) {
+                break;
+            }
+            members.push(self.parse_member(ImplKind::Infer)?);
+        }
+        Ok(P(AstNode::ImplDeclaration {
+            name,
+            generic_params,
+            kind: ImplKind::Infer,
+            target,
+            target_generic_params,
+            where_clause: ThinVec::new(),
+            bounds,
+            members,
+        }))
+    }
+
+    fn parse_member(&mut self, kind: ImplKind) -> Result<Box<AstNode>, ParserError> {
+        let next = self.peek();
+        match next {
+            Some(Token::Fn) => self.parse_function_declaration(),
+            Some(&Token::Let) if kind == ImplKind::Handler => self.parse_variable_declaration(),
+            Some(&Token::Default) => todo!(),
+            Some(&Token::Shared) => todo!(),
+            Some(&Token::Type) => todo!(),
+            _ => match kind {
+                ImplKind::Struct => self.parse_variable_declaration(),
+                ImplKind::Enum => self.parse_enum_variant(),
+                _ => self.parse_statement(), // Maybe we should return an error here?
+            }
+        }
+    }
+
+    
+
+    fn parse_effect_member(&mut self) -> Result<Box<AstNode>, ParserError> {
+        self.finish_fn_declaration()
+    }
+
+    fn parse_enum_variant(&mut self) -> Result<Box<AstNode>, ParserError> {
+        self.parse_struct_decl()
+    }
+
+    fn parse_type_op(&mut self) -> Result<TypeOp, ParserError> {
+        todo!()
+    }
+
+    fn is_marker(&mut self) -> Result<bool, ParserError> {
+        let next = self.peek();
+        if next == Some(&Token::LBrace) {
+            Ok(false)
+        } else if next == Some(&Token::Semicolon) {
+            Ok(true)
+        } else if next == Some(&Token::Newline) {
+            self.consume_newlines();
+            if self.peek() == Some(&Token::LBrace) {
+                Ok(false)
+            } else {
+                Ok(true)
+            }
+        } else {
+            Err(ParserError::ExpectedToken(
+                "newline, LBrace, or Semicolon".to_string(),
+                self.peek()
+                    .map_or("end of input".to_string(), |t| format!("{:?}", t)),
+            ))
+        }
+    }
+
+    fn parse_delc_start(&mut self) -> Result<(Ident, ThinVec<GenericParam>), ParserError> {
+        let name = self.parse_identifier()?;
+        let generic_params = if self.consume_if(&Token::LBracket) {
+            let params = self.parse_generic_params()?;
+            self.consume(&Token::RBracket)?;
+            params
+        } else {
+            ThinVec::new()
+        };
+        Ok((name, generic_params))
+    }
+
+    fn finish_fn_declaration(&mut self) -> Result<Box<AstNode>, ParserError> {
         let name = self.parse_identifier()?;
 
         let generic_params = if self.consume_if(&Token::LBracket) {
@@ -250,9 +569,11 @@ impl Parser {
 
         Ok(P(AstNode::FunctionDeclaration {
             name,
+            attrs: ThinVec::new(),  
             function: Function {
                 generic_params,
                 inputs: params,
+                
                 output: return_type.map(FnRetTy::Ty).unwrap_or_default(),
             },
             body,
@@ -403,7 +724,7 @@ impl Parser {
         self.consume_if(&Token::Semicolon);
         Ok(P(AstNode::VariableDeclaration {
             name,
-            mutable,
+            attrs: thin_vec![BindAttr::new(mutable, None)],
             type_annotation,
             initializer,
         }))
@@ -412,7 +733,7 @@ impl Parser {
     /// Parses a statement.
     pub fn parse_statement(&mut self) -> Result<Box<AstNode>, ParserError> {
         // Skip any leading newlines
-        while self.consume_if(&Token::Newline) {}
+        self.consume_newlines();
         match self.peek() {
             Some(Token::If) => self.parse_if_statement(),
             Some(Token::While) => self.parse_while_statement(),
@@ -516,7 +837,7 @@ impl Parser {
         let mut statements = ThinVec::new();
         while !self.check(&Token::RBrace) && !self.is_at_end() {
             // Skip any leading newlines
-            while self.consume_if(&Token::Newline) {}
+            self.consume_newlines();
             if self.check(&Token::RBrace) {
                 break;
             }
@@ -525,7 +846,7 @@ impl Parser {
         println!("{:?}", statements);
 
         // Skip any trailing newlines
-        while self.consume_if(&Token::Newline) {}
+        self.consume_newlines();
 
         self.consume(&Token::RBrace)?;
         Ok(statements)
@@ -533,7 +854,7 @@ impl Parser {
 
     fn parse_trailing_closure(&mut self, callee: Box<AstNode>) -> Result<AstNode, ParserError> {
         // Skip any leading newlines
-        while self.consume_if(&Token::Newline) {}
+        self.consume_newlines();
         let mut arguments = ThinVec::new();
         println!("parsing arguments");
         loop {
@@ -559,10 +880,10 @@ impl Parser {
     fn finish_trailing_closure(&mut self) -> Result<AstNode, ParserError> {
         let mut statements = ThinVec::new();
         // Skip any leading newlines
-        while self.consume_if(&Token::Newline) {}
+        self.consume_newlines();
         while !self.check(&Token::RBrace) && !self.is_at_end() {
             // Skip any leading newlines
-            while self.consume_if(&Token::Newline) {}
+            self.consume_newlines();
             if self.check(&Token::RBrace) {
                 break;
             }
@@ -571,7 +892,7 @@ impl Parser {
         println!("{:?}", statements);
 
         // Skip any trailing newlines
-        while self.consume_if(&Token::Newline) {}
+        self.consume_newlines();
 
         self.consume(&Token::RBrace)?;
         Ok(AstNode::Block(statements))
