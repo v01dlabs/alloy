@@ -9,7 +9,7 @@ use thin_vec::ThinVec;
 use crate::ast::{AstNode, BinaryOperator, Precedence, P};
 use crate::error::ParserError;
 use crate::lexer::Token;
-use crate::ty::{FnRetTy, Function, GenericParam, Ident, Param, Ty, TyKind};
+use crate::ast::ty::{FnRetTy, Function, GenericParam, Ident, Param, Ty, TyKind};
 use itertools::{Itertools, MultiPeek};
 use std::iter::Peekable;
 use std::vec::IntoIter;
@@ -194,9 +194,17 @@ impl Parser {
 
     /// Parses a declaration (function or variable).
     pub fn parse_declaration(&mut self) -> Result<Box<AstNode>, ParserError> {
-        let declaration = match self.peek() {
+        let next = self.peek().map(Token::ident_to_keyword);
+        let declaration = match next {
             Some(Token::Let) => self.parse_variable_declaration(),
             Some(Token::Fn) => self.parse_function_declaration(),
+            Some(Token::Effect) => todo!(),
+            Some(Token::Struct) => todo!(),
+            Some(Token::Enum) => todo!(),
+            Some(Token::Union) => todo!(),
+            Some(Token::Trait) => todo!(),
+            Some(Token::Handler) => todo!(),
+            Some(Token::Shared) => todo!(),
             _ => self.parse_statement(),
         };
 
@@ -713,6 +721,8 @@ impl Parser {
             )),
         }
     }
+
+    
 
     /// Checks if the parser has reached the end of the token stream.
     fn is_at_end(&mut self) -> bool {

@@ -120,6 +120,19 @@ impl Token {
                     | Token::Match
             )
     }
+
+    pub fn ident_to_keyword<'a>(&'a self) -> &'a Token {
+        match self {
+            Token::Identifier(ref ident) => match ident.as_str() {
+                "handler" => &Token::Handler,
+                "shared" => &Token::Shared,
+                "default" => &Token::Default,
+                "effect" => &Token::Effect,
+                _ => self
+            },
+            _ => self
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

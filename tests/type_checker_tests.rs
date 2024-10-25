@@ -1,4 +1,5 @@
-use alloy::type_checker::{typecheck, TypeError};
+use alloy::type_checker::typecheck;
+use alloy::error::TypeError;
 use alloy::Lexer;
 use alloy::Parser;
 

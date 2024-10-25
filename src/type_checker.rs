@@ -5,29 +5,20 @@
 //! the program is well-typed according to Alloy's type system.
 
 use thin_vec::{thin_vec, ThinVec};
-use thiserror::Error;
 
 use crate::{
-    ast::{AstNode, BinaryOperator, UnaryOperator, P},
-    ty::{
-        AttrItem, BindingMode, Const, FnRetTy, Ident, IntTy, PatField, Path, Pattern, PatternKind,
-        RefKind, Ty, TyKind, TypeOp,
+    ast::{
+        ty::{
+            AttrItem, BindingMode, Const, FnRetTy, Ident, IntTy, PatField, Path, Pattern, PatternKind,
+            RefKind, Ty, TyKind, TypeOp,
+        }, 
+        AstNode, BinaryOperator, UnaryOperator, P
     },
+    error::TypeError,
 };
 
 use std::collections::HashMap;
 
-/// Represents a typing error.
-#[derive(Debug, Error)]
-pub struct TypeError {
-    pub message: String,
-}
-
-impl std::fmt::Display for TypeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Type Error: {}", self.message)
-    }
-}
 
 /// The type environment stores variable and function types.
 type TypeEnv = HashMap<String, Box<Type>>;
@@ -100,7 +91,7 @@ impl TypeChecker {
             AstNode::FunctionDeclaration {
                 name,
                 function:
-                    crate::ty::Function {
+                    crate::ast::ty::Function {
                         generic_params,
                         inputs,
                         output,
@@ -110,18 +101,18 @@ impl TypeChecker {
                 let mut fn_checker = self.copy_env();
                 for generic_param in generic_params.iter() {
                     match &generic_param.kind {
-                        crate::ty::GenericParamKind::Type(Some(box ty)) => {
+                        crate::ast::ty::GenericParamKind::Type(Some(box ty)) => {
                             let ty = P(Type::from(ty.clone()));
                             fn_checker
                                 .env
                                 .insert(generic_param.name.clone(), ty.clone());
                         }
-                        crate::ty::GenericParamKind::Type(None) => {
+                        crate::ast::ty::GenericParamKind::Type(None) => {
                             fn_checker
                                 .env
                                 .insert(generic_param.name.clone(), P(Type::Infer));
                         }
-                        crate::ty::GenericParamKind::Const { box ty, .. } => {
+                        crate::ast::ty::GenericParamKind::Const { box ty, .. } => {
                             let ty = P(Type::from(ty.clone()));
                             fn_checker.env.insert(generic_param.name.clone(), ty);
                         }
@@ -426,6 +417,11 @@ impl TypeChecker {
             AstNode::StringLiteral(_) => Ok(Type::String),
             AstNode::BoolLiteral(_) => Ok(Type::Bool),
             AstNode::ArrayLiteral(elements) => self.typecheck_array_literal(elements),
+            AstNode::EffectDeclaration { name, generic_params, members } => todo!(),
+            AstNode::StructDeclaration { name, generic_params, members } => todo!(),
+            AstNode::EnumDeclaration { name, generic_params, variants } => todo!(),
+            AstNode::TraitDeclaration { name, generic_params, members } => todo!(),
+            AstNode::UnionDeclaration { name, generic_params, members } => todo!(),
         }
     }
 
@@ -902,8 +898,8 @@ pub struct QualifiedSelf {
     pub ty: Box<Type>,
 }
 
-impl From<crate::ty::QualifiedSelf> for QualifiedSelf {
-    fn from(qual_self: crate::ty::QualifiedSelf) -> Self {
+impl From<crate::ast::ty::QualifiedSelf> for QualifiedSelf {
+    fn from(qual_self: crate::ast::ty::QualifiedSelf) -> Self {
         QualifiedSelf {
             ty: P(Type::from(*qual_self.ty).normalize()),
         }
@@ -940,8 +936,8 @@ pub struct Function {
     pub output: Box<Type>,
 }
 
-impl From<crate::ty::Function> for Function {
-    fn from(function: crate::ty::Function) -> Self {
+impl From<crate::ast::ty::Function> for Function {
+    fn from(function: crate::ast::ty::Function) -> Self {
         Self {
             generic_params: function
                 .generic_params
@@ -975,8 +971,8 @@ impl GenericParam {
     }
 }
 
-impl From<crate::ty::GenericParam> for GenericParam {
-    fn from(param: crate::ty::GenericParam) -> Self {
+impl From<crate::ast::ty::GenericParam> for GenericParam {
+    fn from(param: crate::ast::ty::GenericParam) -> Self {
         Self {
             name: param.name,
             kind: param.kind.into(),
@@ -993,13 +989,13 @@ pub enum GenericParamKind {
     Const { ty: Box<Type>, value: Option<Const> },
 }
 
-impl From<crate::ty::GenericParamKind> for GenericParamKind {
-    fn from(kind: crate::ty::GenericParamKind) -> Self {
+impl From<crate::ast::ty::GenericParamKind> for GenericParamKind {
+    fn from(kind: crate::ast::ty::GenericParamKind) -> Self {
         match kind {
-            crate::ty::GenericParamKind::Type(ty) => {
+            crate::ast::ty::GenericParamKind::Type(ty) => {
                 Self::Type(ty.map(|ty| P(Type::from(*ty).normalize())))
             }
-            crate::ty::GenericParamKind::Const { ty, value } => Self::Const {
+            crate::ast::ty::GenericParamKind::Const { ty, value } => Self::Const {
                 ty: P(Type::from(*ty).normalize()),
                 value,
             },
@@ -1013,8 +1009,8 @@ pub struct Param {
     pub ty: Box<Type>,
 }
 
-impl From<crate::ty::Param> for Param {
-    fn from(param: crate::ty::Param) -> Self {
+impl From<crate::ast::ty::Param> for Param {
+    fn from(param: crate::ast::ty::Param) -> Self {
         Param {
             name: param.name,
             ty: P(Type::from(*param.ty).normalize()),

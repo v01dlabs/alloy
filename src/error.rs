@@ -15,6 +15,8 @@ pub enum CompilerError {
 
     #[diagnostic(code(alloy::parser_error))]
     ParserError(ParserError),
+    #[diagnostic(code(alloy::type_error))]
+    TypeError(TypeError),   
 }
 
 impl fmt::Display for CompilerError {
@@ -25,6 +27,9 @@ impl fmt::Display for CompilerError {
             }
             CompilerError::ParserError(e) => {
                 write!(f, "{}", format!("Parser error: {}", e).color(ALLOY_ORANGE))
+            },
+            CompilerError::TypeError(e) => {
+                write!(f, "{}", format!("Type error: {}", e).color(ALLOY_ORANGE))
             }
         }
     }
@@ -35,6 +40,7 @@ impl Error for CompilerError {
         match self {
             CompilerError::LexerError(e) => Some(e),
             CompilerError::ParserError(e) => Some(e),
+            CompilerError::TypeError(e) => Some(e),
         }
     }
 }
@@ -114,3 +120,16 @@ impl fmt::Display for ParserError {
 }
 
 impl Error for ParserError {}
+
+
+/// Represents a typing error.
+#[derive(Debug, thiserror::Error)]
+pub struct TypeError {
+    pub message: String,
+}
+
+impl std::fmt::Display for TypeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Type Error: {}", self.message)
+    }
+}

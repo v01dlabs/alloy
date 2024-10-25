@@ -8,8 +8,8 @@
 use thin_vec::ThinVec;
 
 use crate::{
-    ast::{AstNode, BinaryOperator, UnaryOperator},
-    ty::{FnRetTy, TypeAnnotation},
+    ast::{ty::{Const, FnRetTy, IntTy, Ty}, AstNode, BinaryOperator, UnaryOperator},
+    type_checker::{Param, Type},
 };
 
 /// Represents the transpiler for converting Alloy AST to Rust code.
@@ -43,12 +43,9 @@ impl Transpiler {
                 &function
                     .inputs
                     .iter()
-                    .map(|param| (param.name.clone(), TypeAnnotation::from_ty(&param.ty)))
+                    .map(|param| param.clone().into())
                     .collect::<Vec<_>>(),
-                match &function.output {
-                    FnRetTy::Ty(ty) => todo!(),
-                    FnRetTy::Infer => todo!(),
-                },
+                &function.output.to_type(),
                 &AstNode::Block(body.clone()),
             ),
             AstNode::VariableDeclaration {
@@ -61,7 +58,7 @@ impl Transpiler {
                 *mutable,
                 &type_annotation
                     .as_ref()
-                    .map(|ty| TypeAnnotation::from_ty(ty)),
+                    .map(|ty| Type::from(*ty.clone())),
                 initializer,
             ),
             AstNode::Block(statements) => self.transpile_block(&statements[..]),
@@ -108,6 +105,11 @@ impl Transpiler {
             } => todo!(),
             AstNode::TrailingClosure { callee, closure } => todo!(),
             AstNode::PipelineOperation { left, right } => todo!(),
+            AstNode::EffectDeclaration { name, generic_params, members } => todo!(),
+            AstNode::StructDeclaration { name, generic_params, members } => todo!(),
+            AstNode::EnumDeclaration { name, generic_params, variants } => todo!(),
+            AstNode::TraitDeclaration { name, generic_params, members } => todo!(),
+            AstNode::UnionDeclaration { name, generic_params, members } => todo!(),
         }
     }
 
@@ -124,13 +126,13 @@ impl Transpiler {
     fn transpile_function(
         &mut self,
         name: &str,
-        params: &[(String, TypeAnnotation)],
-        return_type: &Option<TypeAnnotation>,
+        params: &[Param],
+        return_type: &Option<Type>,
         body: &AstNode,
     ) -> String {
         let params_str = params
             .iter()
-            .map(|(name, type_ann)| format!("{}: {}", name, self.transpile_type(type_ann)))
+            .map(|p| format!("{}: {}", p.name, self.transpile_type(&p.ty)))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -152,7 +154,7 @@ impl Transpiler {
         &mut self,
         name: &str,
         is_mutable: bool,
-        type_annotation: &Option<TypeAnnotation>,
+        type_annotation: &Option<Type>,
         initializer: &Option<Box<AstNode>>,
     ) -> String {
         let mut_keyword = if is_mutable { "mut " } else { "" };
@@ -322,31 +324,41 @@ impl Transpiler {
     }
 
     /// Transpiles a type annotation to its Rust equivalent.
-    fn transpile_type(&self, type_annotation: &TypeAnnotation) -> String {
+    fn transpile_type(&self, type_annotation: &Type) -> String {
         match type_annotation {
-            TypeAnnotation::Int => "i32".to_string(),
-            TypeAnnotation::Float => "f64".to_string(),
-            TypeAnnotation::String => "String".to_string(),
-            TypeAnnotation::Bool => "bool".to_string(),
-            TypeAnnotation::Custom(name) => name.clone(),
-            TypeAnnotation::Array(inner_type) => {
+            Type::Int(IntTy::Int) => "i32".to_string(),
+            Type::Int(IntTy::Byte) => "u8".to_string(),
+            Type::Int(IntTy::UInt) => "usize".to_string(),
+            Type::Float => "f64".to_string(),
+            Type::String => "String".to_string(),
+            Type::Bool => "bool".to_string(),
+            Type::Simple(name) => name.clone(),
+            Type::Array(inner_type) => {
                 format!("Vec<{}>", self.transpile_type(inner_type))
             }
-            TypeAnnotation::Byte => todo!(),
-            TypeAnnotation::UInt => todo!(),
-            TypeAnnotation::Char => todo!(),
-            TypeAnnotation::Tuple(thin_vec) => todo!(),
-            TypeAnnotation::Function(function) => todo!(),
-            TypeAnnotation::Algebraic(type_op) => todo!(),
-            TypeAnnotation::Ref(ref_kind, type_annotation) => todo!(),
-            TypeAnnotation::Pattern(type_annotation, pattern) => todo!(),
-            TypeAnnotation::Simple(_) => todo!(),
-            TypeAnnotation::Any => todo!(),
-            TypeAnnotation::Infer => todo!(),
-            TypeAnnotation::SelfType => todo!(),
-            TypeAnnotation::Never => todo!(),
-            TypeAnnotation::Err => todo!(),
-            TypeAnnotation::Default => todo!(),
+            Type::Tuple(thin_vec) => todo!(),
+            Type::Function(function) => todo!(),
+            Type::Algebraic(type_op) => todo!(),
+            Type::Ref(ref_kind, type_annotation) => todo!(),
+            Type::Pattern(type_annotation, pattern) => todo!(),
+            Type::Char => "char".to_string(),
+            Type::Path(path) => todo!(),
+            Type::SizedArray(inner_type, size) => {
+                let size = match size {
+                    Const(box AstNode::IntLiteral(size)) => size,
+                    _ => todo!()
+                };
+                format!("[{}; {}]", self.transpile_type(inner_type), size)
+            },
+            Type::Const(_) => todo!(),
+            Type::Generic(_, thin_vec) => todo!(),
+            Type::Paren(_) => todo!(),
+            Type::Any => "Box<dyn Any>".to_string(),
+            Type::Infer => "_".to_string(),
+            Type::SelfType => todo!(),
+            Type::Never => "!".to_string(),
+            Type::Err => todo!(),
+            
         }
     }
 }

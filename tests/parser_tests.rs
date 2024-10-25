@@ -5,7 +5,7 @@ use alloy::{
     error::ParserError,
     lexer::{Lexer, Token},
     parser::Parser,
-    ty::{FnRetTy, Function, GenericParam, Ty, TyKind},
+    ast::ty::{FnRetTy, Function, GenericParam, Ty, TyKind},
 };
 use thin_vec::thin_vec;
 

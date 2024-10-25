@@ -1,9 +1,9 @@
 use thin_vec::ThinVec;
 
 use crate::{
-    ast::{AstNode, P},
-    type_checker::Type,
-};
+    ast::AstNode, type_checker::Type}
+;
+
 
 pub type Ident = String;
 
@@ -100,6 +100,15 @@ pub struct Param {
 pub enum FnRetTy {
     Infer,
     Ty(Box<Ty>),
+}
+
+impl FnRetTy {
+    pub fn to_type(&self) -> Option<Type> {
+        match self {
+            FnRetTy::Infer => None,
+            FnRetTy::Ty(ty) => Some(Type::from(*ty.clone())),
+        }
+    }
 }
 
 impl Default for FnRetTy {
@@ -212,45 +221,4 @@ pub struct QualifiedSelf {
 pub enum RefKind {
     ThreadLocal(Mutability),
     Sync(Mutability),
-}
-
-pub enum TypeAnnotation {
-    Int,
-    Byte,
-    UInt,
-    Float,
-    String,
-    Bool,
-    Char,
-    Array(Box<TypeAnnotation>),
-    Tuple(ThinVec<Box<TypeAnnotation>>),
-    Function(Function),
-    Algebraic(TypeOp),
-    Ref(RefKind, Box<TypeAnnotation>),
-    Pattern(Box<TypeAnnotation>, Box<Pattern>),
-    Simple(Ident),
-    Custom(Ident),
-    Any,
-    Infer,
-    SelfType,
-    Never,
-    Err,
-    Default,
-}
-
-impl TypeAnnotation {
-    pub fn from_ty(ty: &Ty) -> Self {
-        match &ty.kind {
-            TyKind::Int(_) => TypeAnnotation::Int,
-            TyKind::Float => TypeAnnotation::Float,
-            TyKind::String => TypeAnnotation::String,
-            TyKind::Bool => TypeAnnotation::Bool,
-            TyKind::Simple(name) => TypeAnnotation::Custom(name.clone()),
-            TyKind::Array(inner_ty) => {
-                TypeAnnotation::Array(Box::new(TypeAnnotation::from_ty(inner_ty)))
-            }
-            _ => TypeAnnotation::Err,
-            // TODO: Implement the rest
-        }
-    }
 }

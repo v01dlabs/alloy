@@ -1,7 +1,11 @@
+pub mod ty;
+
+use core::fmt;
+
 use thin_vec::ThinVec;
 
 use crate::lexer::Token;
-use crate::ty::{Function, Ident, Pattern, RefKind, Ty, TypeOp};
+use self::ty::{Function, Ident, Pattern, RefKind, Ty, TypeOp};
 
 #[allow(non_snake_case)]
 pub fn P<T: 'static>(value: T) -> Box<T> {
@@ -111,6 +115,31 @@ pub enum AstNode {
     StringLiteral(String),
     BoolLiteral(bool),
     ArrayLiteral(ThinVec<Box<AstNode>>),
+    EffectDeclaration {
+        name: Ident,
+        generic_params: ThinVec<Box<Ty>>,
+        members: ThinVec<Box<AstNode>>, 
+    },
+    StructDeclaration {
+        name: Ident,
+        generic_params: ThinVec<Box<Ty>>,
+        members: ThinVec<Box<AstNode>>, 
+    },
+    EnumDeclaration {
+        name: Ident,
+        generic_params: ThinVec<Box<Ty>>,
+        variants: ThinVec<Box<AstNode>>, 
+    },
+    TraitDeclaration {
+        name: Ident,
+        generic_params: ThinVec<Box<Ty>>,
+        members: ThinVec<Box<AstNode>>, 
+    },
+    UnionDeclaration {
+        name: Ident,
+        generic_params: ThinVec<Box<Ty>>,
+        members: ThinVec<Box<AstNode>>, 
+    },
 }
 
 /// Represents binary operators in Alloy.
@@ -206,4 +235,43 @@ pub enum FloatKind {
     Float,
     F32,
     F64,
+}
+
+impl fmt::Display for IntKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IntKind::Int => write!(f, "i64"),
+            IntKind::I8 => write!(f, "i8"),
+            IntKind::I16 => write!(f, "i16"),
+            IntKind::I32 => write!(f, "i32"),
+            IntKind::I64 => write!(f, "i64"),
+            IntKind::I128 => write!(f, "i128"),
+            IntKind::Isize => write!(f, "isize"),
+        }
+    }
+}
+
+impl fmt::Display for UintKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UintKind::Byte => write!(f, "u8"),
+            UintKind::Uint => write!(f, "usize"),
+            UintKind::U8 => write!(f, "u8"),
+            UintKind::U16 => write!(f, "u16"),
+            UintKind::U32 => write!(f, "u32"),
+            UintKind::U64 => write!(f, "u64"),
+            UintKind::U128 => write!(f, "u128"),
+            UintKind::Usize => write!(f, "usize"),
+        }
+    }
+}
+
+impl fmt::Display for FloatKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FloatKind::Float => write!(f, "f64"),
+            FloatKind::F32 => write!(f, "f32"),
+            FloatKind::F64 => write!(f, "f64"),
+        }
+    }
 }
