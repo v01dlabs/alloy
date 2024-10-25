@@ -163,6 +163,7 @@ impl Parser {
 
     /// Parses a primary expression.
     fn parse_primary(&mut self) -> Result<Box<AstNode>, ParserError> {
+        println!("parsing primary");
         match self.advance() {
             Some(Token::Identifier(name)) => {
                 if self.check(&Token::LParen) {
@@ -257,8 +258,8 @@ impl Parser {
 
     fn parse_function_call(&mut self, callee: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         let arguments = self.parse_arguments()?;
-        if self.consume_if(&Token::LBrace) {
-            
+        if self.check(&Token::LBrace) && self.will_occur_in_next_scope(&Token::In) {
+            self.consume(&Token::LBrace)?;
             self.parse_trailing_closure(callee).map(P)
         } else {
             Ok(P(AstNode::FunctionCall {
@@ -288,7 +289,8 @@ impl Parser {
             return Ok(P(AstNode::Identifier(callee)));
         }
         let arguments = self.parse_arguments()?;
-        if self.consume_if(&Token::LBrace) {
+        if self.check(&Token::LBrace) && self.will_occur_in_next_scope(&Token::In) {
+            self.consume(&Token::LBrace)?;
             self.parse_trailing_closure(P(AstNode::Identifier(callee))).map(P)
         } else {
             Ok(P(AstNode::GenericFunctionCall { name: callee, generic_args, arguments }))
@@ -433,9 +435,9 @@ impl Parser {
         if paren {
             self.consume(&Token::RParen)?;
         }
-        let then_branch = self.parse_statement_or_block()?;
+        let then_branch = P(AstNode::Block(self.parse_block()?));
         let else_branch = if self.consume_if(&Token::Else) {
-            Some(self.parse_statement_or_block()?)
+            Some(P(AstNode::Block(self.parse_block()?)))
         } else {
             None
         };
@@ -485,9 +487,11 @@ impl Parser {
     /// Parses a return statement.
     fn parse_return_statement(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Return)?;
-        let value = if !self.check(&Token::Semicolon) && !self.check(&Token::RBrace) {
-            println!("parsing expression");
-            Some(self.parse_expression(Precedence::None)?)
+        let value = if !self.check(&Token::Semicolon) 
+            && !self.check(&Token::RBrace) 
+            && !self.check(&Token::Newline) {
+                println!("parsing expression");
+                Some(self.parse_expression(Precedence::None)?)
         } else {
             None
         };
@@ -526,7 +530,8 @@ impl Parser {
     }
 
     fn parse_trailing_closure(&mut self, callee: Box<AstNode>) -> Result<AstNode, ParserError> {
-        
+        // Skip any leading newlines
+        while self.consume_if(&Token::Newline) {}
         let mut arguments = ThinVec::new();
         println!("parsing arguments");
         loop {
@@ -552,6 +557,8 @@ impl Parser {
     /// Finishes parsing a trailing closure.
     fn finish_trailing_closure(&mut self) -> Result<AstNode, ParserError> {
         let mut statements = ThinVec::new();
+        // Skip any leading newlines
+        while self.consume_if(&Token::Newline) {}
         while !self.check(&Token::RBrace) && !self.is_at_end() {
             // Skip any leading newlines
             while self.consume_if(&Token::Newline) {}
@@ -569,15 +576,18 @@ impl Parser {
         Ok(AstNode::Block(statements))
     }
 
+    fn at_expression_end(&mut self) -> bool {
+        self.check(&Token::Semicolon) || self.check(&Token::Newline) || self.check(&Token::RBrace) || self.is_at_end()
+    }
+
     /// Parses an expression.
     pub fn parse_expression(&mut self, precedence: Precedence) -> Result<Box<AstNode>, ParserError> {
         let mut left = self.parse_primary()?;
-        if self.check(&Token::Semicolon) || self.is_at_end() || self.check(&Token::RBrace) {
+        if self.at_expression_end(){
             return Ok(left);
         }
-
         while precedence < self.get_precedence() {
-            if self.check(&Token::Semicolon) || self.is_at_end() {
+            if self.at_expression_end() {
                 break;
             }
             left = self.parse_infix(left)?;
@@ -612,7 +622,7 @@ impl Parser {
     fn parse_infix(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         match self.peek() {
             Some(Token::Plus) | Some(Token::Minus) => self.parse_binary(left, Precedence::Term),
-            Some(Token::Multiply) | Some(Token::Divide) => {
+            Some(Token::Multiply) | Some(Token::Divide) | Some(Token::Modulo) => {
                 self.parse_binary(left, Precedence::Factor)
             }
             Some(Token::Eq) | Some(Token::NotEq) => self.parse_binary(left, Precedence::Equality),
@@ -672,6 +682,7 @@ impl Parser {
             Token::Plus => Ok(BinaryOperator::Add),
             Token::Minus => Ok(BinaryOperator::Subtract),
             Token::Multiply => Ok(BinaryOperator::Multiply),
+            Token::Modulo => Ok(BinaryOperator::Modulo),
             Token::Divide => Ok(BinaryOperator::Divide),
             Token::Eq => Ok(BinaryOperator::Equal),
             Token::NotEq => Ok(BinaryOperator::NotEqual),
@@ -718,7 +729,7 @@ impl Parser {
                 Precedence::Comparison
             }
             Some(Token::Plus) | Some(Token::Minus) => Precedence::Term,
-            Some(Token::Multiply) | Some(Token::Divide) => Precedence::Factor,
+            Some(Token::Multiply) | Some(Token::Divide) | Some(Token::Modulo) => Precedence::Factor,
             Some(Token::LParen) => Precedence::Call,
             _ => Precedence::None,
         }

@@ -411,7 +411,8 @@ impl TypeChecker {
             BinaryOperator::Add
             | BinaryOperator::Subtract
             | BinaryOperator::Multiply
-            | BinaryOperator::Divide => {
+            | BinaryOperator::Divide
+            | BinaryOperator::Modulo => {
                 if right == &Type::Infer && ( matches!(left, &Type::Int(_)) || left == &Type::Float) {
                     Ok(right.clone())
                 } else if left == &Type::Infer && ( matches!(right, &Type::Int(_)) || right == &Type::Float) {
