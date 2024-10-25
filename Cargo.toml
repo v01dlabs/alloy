@@ -2,7 +2,7 @@
 name = "alloy"
 version = "0.1.0"
 edition = "2021"
-authors = ["@ovnanova"]
+authors = ["@ovnanova", "@orual"]
 description = "Alloy"
 license = "MPL-2.0"
 readme = "README.md"
@@ -13,12 +13,20 @@ name = "integration_tests"
 path = "tests/integration_tests.rs"
 
 [dependencies]
+async-trait = "0.1.83"
+dashmap = "6.1.0"
+futures = "0.3.31"
 itertools = "0.13.0"
 miette = "7.2.0"
 owo-colors = "4.1.0"
+rand = "0.8.5"
 thin-vec = "0.2.13"
 thiserror = "1.0.65"
+tokio = { version = "1.41.0", features = ["full"] }
 tracing = "0.1.40"
+
+[dev-dependencies]
+tikv-jemallocator = "0.6.0"
 
 [[bin]]
 name = "alloyc"
@@ -26,4 +34,4 @@ path = "src/main.rs"
 
 [lib]
 name = "alloy"
-path = "src/lib.rs" 
+path = "src/lib.rs"

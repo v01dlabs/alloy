@@ -14,7 +14,6 @@ use itertools::{Itertools, MultiPeek};
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
-
 /// The Parser struct holds the state during parsing.
 pub struct Parser {
     tokens: Peekable<IntoIter<Token>>,
@@ -32,7 +31,6 @@ impl Parser {
     fn peek(&mut self) -> Option<&Token> {
         self.tokens.peek()
     }
-
 
     /// Advances to the next token, consuming the current one.
     fn advance(&mut self) -> Option<Token> {
@@ -190,7 +188,7 @@ impl Parser {
                     "in primary expression: {:?}",
                     t
                 )))
-            },
+            }
         }
     }
 
@@ -199,15 +197,12 @@ impl Parser {
         let declaration = match self.peek() {
             Some(Token::Let) => self.parse_variable_declaration(),
             Some(Token::Fn) => self.parse_function_declaration(),
-            _ => self.parse_statement()
+            _ => self.parse_statement(),
         };
 
         // Check if the declaration is followed by a newline or EOF
         let next_token = self.peek();
-        if !matches!(
-            next_token,
-            Some(&Token::Newline) | None | Some(&Token::Eof)
-        ) {
+        if !matches!(next_token, Some(&Token::Newline) | None | Some(&Token::Eof)) {
             return Err(ParserError::ExpectedToken(
                 "newline".to_string(),
                 format!("{:?}", next_token.unwrap_or(&Token::Eof)),
@@ -262,14 +257,11 @@ impl Parser {
             self.consume(&Token::LBrace)?;
             self.parse_trailing_closure(callee).map(P)
         } else {
-            Ok(P(AstNode::FunctionCall {
-                callee,
-                arguments,
-            }))
+            Ok(P(AstNode::FunctionCall { callee, arguments }))
         }
     }
 
-    /// Parses a generic function call. 
+    /// Parses a generic function call.
     /// Falls through to treating as an identifier if it wasn't a generic function call, mostly.
     fn parse_generic_function_call(&mut self, callee: String) -> Result<Box<AstNode>, ParserError> {
         let generic_args = if self.consume_if(&Token::LBracket) {
@@ -291,14 +283,16 @@ impl Parser {
         let arguments = self.parse_arguments()?;
         if self.check(&Token::LBrace) && self.will_occur_in_next_scope(&Token::In) {
             self.consume(&Token::LBrace)?;
-            self.parse_trailing_closure(P(AstNode::Identifier(callee))).map(P)
+            self.parse_trailing_closure(P(AstNode::Identifier(callee)))
+                .map(P)
         } else {
-            Ok(P(AstNode::GenericFunctionCall { name: callee, generic_args, arguments }))
+            Ok(P(AstNode::GenericFunctionCall {
+                name: callee,
+                generic_args,
+                arguments,
+            }))
         }
     }
-
-
-    
 
     // Helper method to parse generic parameters
     fn parse_generic_params(&mut self) -> Result<ThinVec<GenericParam>, ParserError> {
@@ -320,7 +314,10 @@ impl Parser {
                 let name = self.parse_identifier()?;
                 self.consume(&Token::Colon)?;
                 let type_annotation = self.parse_type_annotation()?;
-                params.push(Param { name, ty: type_annotation });
+                params.push(Param {
+                    name,
+                    ty: type_annotation,
+                });
                 if !self.consume_if(&Token::Comma) {
                     break;
                 }
@@ -339,7 +336,7 @@ impl Parser {
                 }
                 params.push(Param {
                     name: "".to_string(),
-                    ty: self.parse_type_annotation()?
+                    ty: self.parse_type_annotation()?,
                 });
                 if !self.consume_if(&Token::Comma) {
                     break;
@@ -352,12 +349,10 @@ impl Parser {
                 None
             };
             return Ok(P(Ty {
-                kind: TyKind::Function(Function { 
+                kind: TyKind::Function(Function {
                     generic_params: ThinVec::new(),
-                    inputs: params, 
-                    output: return_type.map(
-                        FnRetTy::Ty
-                    ).unwrap_or_default()
+                    inputs: params,
+                    output: return_type.map(FnRetTy::Ty).unwrap_or_default(),
                 }),
             }));
         }
@@ -418,12 +413,10 @@ impl Parser {
             Some(Token::Return) => self.parse_return_statement(),
             Some(Token::LBrace) => Ok(P(AstNode::Block(self.parse_block()?))),
             Some(Token::Let) => self.parse_variable_declaration(),
-            _ => {
-                self.parse_expression(Precedence::None).and_then(|expr| {
-                    self.consume_if(&Token::Semicolon);
-                    Ok(expr)
-                })
-            },
+            _ => self.parse_expression(Precedence::None).and_then(|expr| {
+                self.consume_if(&Token::Semicolon);
+                Ok(expr)
+            }),
         }
     }
 
@@ -487,11 +480,12 @@ impl Parser {
     /// Parses a return statement.
     fn parse_return_statement(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Return)?;
-        let value = if !self.check(&Token::Semicolon) 
-            && !self.check(&Token::RBrace) 
-            && !self.check(&Token::Newline) {
-                println!("parsing expression");
-                Some(self.parse_expression(Precedence::None)?)
+        let value = if !self.check(&Token::Semicolon)
+            && !self.check(&Token::RBrace)
+            && !self.check(&Token::Newline)
+        {
+            println!("parsing expression");
+            Some(self.parse_expression(Precedence::None)?)
         } else {
             None
         };
@@ -524,7 +518,7 @@ impl Parser {
 
         // Skip any trailing newlines
         while self.consume_if(&Token::Newline) {}
-        
+
         self.consume(&Token::RBrace)?;
         Ok(statements)
     }
@@ -535,8 +529,10 @@ impl Parser {
         let mut arguments = ThinVec::new();
         println!("parsing arguments");
         loop {
-            if self.check(&Token::In) { break; }
-            
+            if self.check(&Token::In) {
+                break;
+            }
+
             arguments.push(self.parse_expression(Precedence::None)?);
             if !self.consume_if(&Token::Comma) {
                 break;
@@ -546,10 +542,7 @@ impl Parser {
         println!("{:?}", self.tokens);
         let closure = self.finish_trailing_closure()?;
         Ok(AstNode::TrailingClosure {
-            callee: P(AstNode::FunctionCall {
-                callee,
-                arguments,
-            }),
+            callee: P(AstNode::FunctionCall { callee, arguments }),
             closure: P(closure),
         })
     }
@@ -577,13 +570,19 @@ impl Parser {
     }
 
     fn at_expression_end(&mut self) -> bool {
-        self.check(&Token::Semicolon) || self.check(&Token::Newline) || self.check(&Token::RBrace) || self.is_at_end()
+        self.check(&Token::Semicolon)
+            || self.check(&Token::Newline)
+            || self.check(&Token::RBrace)
+            || self.is_at_end()
     }
 
     /// Parses an expression.
-    pub fn parse_expression(&mut self, precedence: Precedence) -> Result<Box<AstNode>, ParserError> {
+    pub fn parse_expression(
+        &mut self,
+        precedence: Precedence,
+    ) -> Result<Box<AstNode>, ParserError> {
         let mut left = self.parse_primary()?;
-        if self.at_expression_end(){
+        if self.at_expression_end() {
             return Ok(left);
         }
         while precedence < self.get_precedence() {
@@ -620,11 +619,15 @@ impl Parser {
 
     /// Parses an infix expression.
     fn parse_infix(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
-        let prec = self.peek()
+        let prec = self
+            .peek()
             .map_or_else(|| Precedence::None, |t| Precedence::from_token(t));
         match prec {
-            Precedence::Term | Precedence::Factor 
-            | Precedence::Equality | Precedence::Or | Precedence::And 
+            Precedence::Term
+            | Precedence::Factor
+            | Precedence::Equality
+            | Precedence::Or
+            | Precedence::And
             | Precedence::Comparison => self.parse_binary(left, prec),
             Precedence::Assignment => self.parse_assignment(left),
             Precedence::Pipeline => self.parse_pipeline(left),
@@ -648,10 +651,7 @@ impl Parser {
     fn parse_pipeline(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         self.advance(); // Consume the '|>' token
         let right = self.parse_expression(Precedence::Pipeline)?;
-        Ok(P(AstNode::PipelineOperation {
-            left,
-            right,
-        }))
+        Ok(P(AstNode::PipelineOperation { left, right }))
     }
 
     /// Parses a binary operation.
@@ -667,7 +667,7 @@ impl Parser {
         Ok(P(AstNode::BinaryOperation {
             left,
             operator: self.token_to_binary_operator(operator)?,
-            right,   
+            right,
         }))
     }
 

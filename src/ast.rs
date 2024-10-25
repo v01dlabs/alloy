@@ -1,8 +1,7 @@
-
 use thin_vec::ThinVec;
 
 use crate::lexer::Token;
-use crate::ty::{Function, Ident, Ty};
+use crate::ty::{Function, Ident, Pattern, RefKind, Ty, TypeOp};
 
 #[allow(non_snake_case)]
 pub fn P<T: 'static>(value: T) -> Box<T> {
@@ -20,21 +19,20 @@ pub enum Precedence {
     Equality,   // == !=
     Comparison, // < > <= >=
     Term,       // + -
-    Factor,     // / * 
+    Factor,     // / *
     Unary,      // - !
     Call,       // . ()
     Primary,
 }
 
 impl Precedence {
-
     #[inline]
     pub fn from_token(token: &Token) -> Precedence {
         match token {
             Token::Eq | Token::NotEq => Precedence::Equality,
             Token::Lt | Token::LtEq | Token::Gt | Token::GtEq => Precedence::Comparison,
             Token::Plus | Token::Minus => Precedence::Term,
-            Token::Multiply | Token::Divide | Token::Modulo => Precedence::Factor,  
+            Token::Multiply | Token::Divide | Token::Modulo => Precedence::Factor,
             Token::Not => Precedence::Unary,
             Token::And => Precedence::And,
             Token::Or => Precedence::Or,
@@ -45,7 +43,6 @@ impl Precedence {
         }
     }
 }
-
 
 /// Represents a node in the Abstract Syntax Tree (AST).
 #[derive(Debug, Clone, PartialEq)]
@@ -134,10 +131,9 @@ pub enum BinaryOperator {
     Or,
     Assign,
     Pipeline,
-} 
+}
 
 impl BinaryOperator {
-
     #[inline]
     pub fn from_token(token: &Token) -> Option<BinaryOperator> {
         match token {

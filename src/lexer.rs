@@ -80,13 +80,24 @@ pub enum Token {
 
 impl Token {
     pub fn is_block_end(&self) -> bool {
-        matches!(self, Token::RBrace | Token::RBracket | Token::RParen | Token::Eof)
+        matches!(
+            self,
+            Token::RBrace | Token::RBracket | Token::RParen | Token::Eof
+        )
     }
 
     pub fn is_block_start(&self) -> bool {
         matches!(self, Token::LBrace | Token::LBracket | Token::LParen)
-        || matches!(self, Token::If | Token::Let | Token::Else | 
-            Token::For | Token::While | Token::Guard | Token::Match)
+            || matches!(
+                self,
+                Token::If
+                    | Token::Let
+                    | Token::Else
+                    | Token::For
+                    | Token::While
+                    | Token::Guard
+                    | Token::Match
+            )
     }
 }
 

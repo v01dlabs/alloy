@@ -1,12 +1,15 @@
 use thin_vec::ThinVec;
 
-use crate::{ast::{AstNode, P}, type_checker::Type};
+use crate::{
+    ast::{AstNode, P},
+    type_checker::Type,
+};
 
 pub type Ident = String;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum IntTy {
-    Int, // i64   
+    Int,  // i64
     Byte, // u8
     UInt, // usize
 }
@@ -27,9 +30,9 @@ impl Ty {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TyKind {
     Int(IntTy),
-    Float, 
+    Float,
     Bool,
-    Char, 
+    Char,
     String,
     Array(Box<Ty>),
     Path(Path),
@@ -41,7 +44,7 @@ pub enum TyKind {
     Generic(Ident, ThinVec<Box<Ty>>),
     Paren(Box<Ty>),
     Ref(RefKind, Box<Ty>),
-    Pattern(Box<Ty>, Box<Pattern>), 
+    Pattern(Box<Ty>, Box<Pattern>),
     Simple(Ident),
     Any,
     Infer,
@@ -49,7 +52,6 @@ pub enum TyKind {
     Never,
     Err,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Const(pub Box<AstNode>);
@@ -85,22 +87,19 @@ impl GenericParam {
 #[derive(Debug, Clone, PartialEq)]
 pub enum GenericParamKind {
     Type(Option<Box<Ty>>),
-    Const {
-        ty: Box<Ty>,
-        value: Option<Const>
-    }
+    Const { ty: Box<Ty>, value: Option<Const> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: Ident,
     pub ty: Box<Ty>,
-} 
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FnRetTy {
     Infer,
-    Ty(Box<Ty>),  
+    Ty(Box<Ty>),
 }
 
 impl Default for FnRetTy {
@@ -116,7 +115,7 @@ pub struct AttrItem {
     pub path: Path,
 }
 
-#[derive(Debug, Clone, PartialEq)] 
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeOp {
     And(ThinVec<Box<Ty>>),
     Or(ThinVec<Box<Ty>>),
@@ -125,7 +124,6 @@ pub enum TypeOp {
     Subset(Box<Ty>),
     Implements(Box<Ty>),
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pattern {
@@ -214,4 +212,45 @@ pub struct QualifiedSelf {
 pub enum RefKind {
     ThreadLocal(Mutability),
     Sync(Mutability),
+}
+
+pub enum TypeAnnotation {
+    Int,
+    Byte,
+    UInt,
+    Float,
+    String,
+    Bool,
+    Char,
+    Array(Box<TypeAnnotation>),
+    Tuple(ThinVec<Box<TypeAnnotation>>),
+    Function(Function),
+    Algebraic(TypeOp),
+    Ref(RefKind, Box<TypeAnnotation>),
+    Pattern(Box<TypeAnnotation>, Box<Pattern>),
+    Simple(Ident),
+    Custom(Ident),
+    Any,
+    Infer,
+    SelfType,
+    Never,
+    Err,
+    Default,
+}
+
+impl TypeAnnotation {
+    pub fn from_ty(ty: &Ty) -> Self {
+        match &ty.kind {
+            TyKind::Int(_) => TypeAnnotation::Int,
+            TyKind::Float => TypeAnnotation::Float,
+            TyKind::String => TypeAnnotation::String,
+            TyKind::Bool => TypeAnnotation::Bool,
+            TyKind::Simple(name) => TypeAnnotation::Custom(name.clone()),
+            TyKind::Array(inner_ty) => {
+                TypeAnnotation::Array(Box::new(TypeAnnotation::from_ty(inner_ty)))
+            }
+            _ => TypeAnnotation::Err,
+            // TODO: Implement the rest
+        }
+    }
 }

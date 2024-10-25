@@ -1,8 +1,11 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{AstNode, BinaryOperator, Precedence}, error::ParserError, lexer::{Lexer, Token}, parser::Parser, 
-    ty::{FnRetTy, Function, GenericParam, Ty, TyKind}
+    ast::{AstNode, BinaryOperator, Precedence},
+    error::ParserError,
+    lexer::{Lexer, Token},
+    parser::Parser,
+    ty::{FnRetTy, Function, GenericParam, Ty, TyKind},
 };
 use thin_vec::thin_vec;
 
@@ -72,21 +75,27 @@ fn test_parse_function_declaration() {
     match result {
         box AstNode::FunctionDeclaration {
             name,
-            function: Function {
-                generic_params,
-                inputs: params,
-                output: return_type,
-            },
+            function:
+                Function {
+                    generic_params,
+                    inputs: params,
+                    output: return_type,
+                },
             body,
         } => {
             assert_eq!(name, "add");
-            assert_eq!(generic_params, thin_vec![GenericParam::simple("T".to_string())]); 
+            assert_eq!(
+                generic_params,
+                thin_vec![GenericParam::simple("T".to_string())]
+            );
             assert_eq!(params.len(), 2);
-            assert_eq!(params[0].name, "a");            
+            assert_eq!(params[0].name, "a");
             assert_eq!(params[1].name, "b");
             assert!(matches!(&params[0].ty.kind, TyKind::Simple(t) if t == "T"));
             assert!(matches!(&params[1].ty.kind, TyKind::Simple(t) if t == "T"));
-            assert!(matches!(return_type, FnRetTy::Ty(box Ty { kind: TyKind::Simple(t) }) if t == "T"));
+            assert!(
+                matches!(return_type, FnRetTy::Ty(box Ty { kind: TyKind::Simple(t) }) if t == "T")
+            );
             assert_eq!(body.len(), 1);
             match body[0] {
                 box AstNode::ReturnStatement(Some(box AstNode::BinaryOperation { .. })) => {}
@@ -231,10 +240,11 @@ fn test_parse_pipeline_operator() {
     ];
     let mut parser = create_parser(tokens);
     let result = parser.parse_statement().unwrap();
-    assert!(matches!(result,
+    assert!(matches!(
+        result,
         box AstNode::PipelineOperation {
             left: box AstNode::PipelineOperation { .. },
-            right: box AstNode::FunctionCall { .. }
+            right: box AstNode::FunctionCall { .. },
         }
     ));
 }
@@ -404,7 +414,12 @@ fn test_parse_function_with_generic_return_type() {
     );
     if let Ok(box AstNode::FunctionDeclaration {
         name,
-        function: Function { generic_params, inputs: params, output: return_type },
+        function:
+            Function {
+                generic_params,
+                inputs: params,
+                output: return_type,
+            },
         body,
     }) = result
     {

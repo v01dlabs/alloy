@@ -1,18 +1,17 @@
 #![feature(box_patterns)]
 
+mod ast;
 mod error;
 mod lexer;
 mod parser;
-mod type_checker;
-mod ast;
 mod ty;
+mod type_checker;
 
 use crate::error::CompilerError;
 use crate::lexer::Lexer;
 use std::env;
 use std::error::Error;
 use std::fs;
-
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
