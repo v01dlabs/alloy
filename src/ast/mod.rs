@@ -107,8 +107,8 @@ pub enum AstNode {
         closure: Box<AstNode>,
     },
     PipelineOperation {
-        left: Box<AstNode>,
-        right: Box<AstNode>,
+        prev: Box<AstNode>,
+        next: Box<AstNode>,
     },
     Identifier(Ident),
     IntLiteral(i64),
@@ -265,6 +265,17 @@ pub enum UnaryOperator {
     Negate,
     Not,
     Increment,
+}
+
+impl UnaryOperator {
+    pub fn from_token(token: &Token) -> Option<UnaryOperator> {
+        match token {
+            Token::Not => Some(UnaryOperator::Not),
+            Token::Minus => Some(UnaryOperator::Negate),
+            Token::Increment => Some(UnaryOperator::Increment),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

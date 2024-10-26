@@ -416,12 +416,12 @@ impl TypeChecker {
                     }),
                 }
             }
-            AstNode::PipelineOperation { left, right } => {
+            AstNode::PipelineOperation { prev, next } => {
                 //TODO: Placeholder implementation
-                let left_type = self.infer_type(left)?;
-                let right_type = self.infer_type(right)?;
+                let prev_type = self.infer_type(prev)?;
+                let next_type = self.infer_type(next)?;
                 //self.typecheck_binary_op(&BinaryOperator::Pipeline, &left_type, &right_type)
-                Ok(right_type)
+                Ok(prev_type)
             }
             AstNode::Identifier(ident) => {
                 Ok(self.resolve_ident(ident)?.ty)

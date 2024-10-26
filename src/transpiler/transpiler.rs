@@ -105,7 +105,7 @@ impl Transpiler {
                 arguments,
             } => todo!(),
             AstNode::TrailingClosure { callee, closure } => todo!(),
-            AstNode::PipelineOperation { left, right } => todo!(),
+            AstNode::PipelineOperation { prev, next } => todo!(),
             AstNode::EffectDeclaration { 
                 name, generic_params,
                 where_clause, bounds, members } => todo!(),

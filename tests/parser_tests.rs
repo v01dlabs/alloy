@@ -1,7 +1,7 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{ty::{FnRetTy, Function, GenericParam, Ty, TyKind}, AstNode, BinaryOperator, Precedence},
+    ast::{ty::{FnRetTy, Function, GenericParam, Ty, TyKind}, AstNode, BinaryOperator, Precedence, UnaryOperator},
     error::ParserError,
     lexer::{Lexer, Token},
     parser::{parse, Parser},
@@ -38,6 +38,22 @@ fn test_parse_variable_declaration() {
             type_annotation: Some(box Ty { kind: TyKind::Simple(type_name) }),
             initializer: Some(box AstNode::IntLiteral(5))
         }) if name == "x" && type_name == "int"
+    ));
+}
+
+#[test]
+fn test_parse_unary_operator() {
+    let tokens = vec![
+        Token::Not,
+        Token::Identifier("x".to_string()),
+        Token::Semicolon,
+    ];
+    let mut parser = create_parser(tokens);
+    let result = parser.parse_declaration().unwrap();
+    assert!(matches!(result,
+        box AstNode::UnaryOperation { 
+            operator: UnaryOperator::Not, operand: box AstNode::Identifier(x) 
+        } if x == "x"
     ));
 }
 
@@ -243,8 +259,8 @@ fn test_parse_pipeline_operator() {
     assert!(matches!(
         result,
         box AstNode::PipelineOperation {
-            left: box AstNode::PipelineOperation { .. },
-            right: box AstNode::FunctionCall { .. },
+            prev: box AstNode::PipelineOperation { .. },
+            next: box AstNode::FunctionCall { .. },
         }
     ));
 }
@@ -362,7 +378,7 @@ fn test_basic_effect() {
     );
     if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(declarations.len(), 1);
-        let declaration = declarations.first().unwrap();
+        let declaration = declarations.first().unwrap().clone();
         assert!(matches!(declaration,
             box AstNode::EffectDeclaration { .. } 
         ));
@@ -399,7 +415,7 @@ fn test_struct_decl() {
     );
     if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(declarations.len(), 1);
-        let declaration = declarations.first().unwrap();
+        let declaration = declarations.first().unwrap().clone();
         assert!(matches!(declaration,
             box AstNode::StructDeclaration { .. } 
         ));
@@ -542,9 +558,9 @@ fn test_parse_error_handling() {
 fn test_parse_pipeline_basic() {
     let input = r#"
         let processed = data
-            |> map(x -> x * 2)
-            |> filter(x -> x > 0)
-            |> fold(0, (acc, x) -> acc + x)
+            |> map { x in x * 2 }
+            |> filter { x in  x > 0 } 
+            |> fold(0) { acc, x in acc + x }
     "#;
     let tokens = Lexer::tokenize(input).unwrap();
     let mut parser = Parser::new(tokens);
@@ -554,17 +570,17 @@ fn test_parse_pipeline_basic() {
         "Failed to parse pipeline: {}",
         result.unwrap_err()
     );
+    println!("{:#?}", result);
     if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(declarations.len(), 1);
-        let declaration = declarations.first().unwrap();
-        assert!(matches!(declaration,
-            box AstNode::VariableDeclaration { name, initializer: Some(box AstNode::PipelineOperation { .. }), .. } 
-            if name == "processed"
-        ));
-        if let box AstNode::VariableDeclaration { name, initializer: Some(box AstNode::PipelineOperation { left, right }), .. } = declaration {
-            assert_eq!(name, "processed");
-            assert!(matches!(left.clone(), box AstNode::FunctionCall { .. }));
-            assert!(matches!(right.clone(), box AstNode::FunctionCall { .. }));
+        let declaration = declarations.first().unwrap().clone();
+        if let box AstNode::PipelineOperation { prev, next, .. } = declaration {
+            assert!(matches!(prev.clone(), box AstNode::PipelineOperation { .. }));
+            assert!(matches!(next.clone(), box AstNode::TrailingClosure { .. }));
+        } else {
+            panic!("Expected PipelineOperation, got {:?}", declaration);
         }
+    } else {
+        panic!("Expected Program, got {:?}", result);
     }
 }

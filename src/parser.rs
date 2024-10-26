@@ -4,9 +4,10 @@
 //! and constructing an Abstract Syntax Tree (AST) that represents the structure
 //! of an Alloy program.
 
+use rand::seq::index;
 use thin_vec::{thin_vec, ThinVec};
 
-use crate::ast::{AstNode, FnAttr, BinaryOperator, BindAttr, ImplKind, Precedence, P};
+use crate::ast::{AstNode, BinaryOperator, UnaryOperator, BindAttr, FnAttr, ImplKind, Precedence, P};
 use crate::error::ParserError;
 use crate::lexer::Token;
 use crate::ast::ty::{ FnRetTy, Function, GenericParam, Ident, Param, Ty, TyKind, TypeOp};
@@ -97,7 +98,7 @@ impl Parser {
         while let Some(t) = iter.peek() {
             if t == expected {
                 return true;
-            }
+            } 
             if t.is_block_end() || t.is_block_start() && t != &Token::LBrace {
                 return false;
             }
@@ -105,41 +106,15 @@ impl Parser {
         false
     }
 
-    /// Consumes the next token if it matches either of the given tokens.
-    fn consume_either(&mut self, first: &Token, second: &Token) -> Result<(), ParserError> {
-        if self.check(first) {
-            self.consume(first)
-        } else if self.check(second) {
-            self.consume(second)
-        } else {
-            Err(ParserError::ExpectedToken(
-                format!("{:?} or {:?}", first, second),
-                self.peek()
-                    .map_or("end of input".to_string(), |t| format!("{:?}", t)),
-            ))
+    fn consume_any<'a>(&'a mut self, options: &'a[&'a Token]) -> Result<&'a Token, ParserError> {
+        let next = self.peek();
+        for test in options.iter() {
+            if next == Some(test) {
+                self.advance();
+                return Ok(test);
+            }
         }
-    }
-
-    /// Consumes the next token if it matches either of the given tokens.
-    fn consume_any(
-        &mut self,
-        first: &Token,
-        second: &Token,
-        third: &Token,
-    ) -> Result<(), ParserError> {
-        if self.check(first) {
-            self.consume(first)
-        } else if self.check(second) {
-            self.consume(second)
-        } else if self.check(third) {
-            self.consume(third)
-        } else {
-            Err(ParserError::ExpectedToken(
-                format!("{:?} or {:?}", first, second),
-                self.peek()
-                    .map_or("end of input".to_string(), |t| format!("{:?}", t)),
-            ))
-        }
+        Err(ParserError::ExpectedToken(format!("one of {:?}", options), format!("{:?}", next)))
     }
 
     fn consume_newlines(&mut self) {
@@ -154,7 +129,21 @@ impl Parser {
             while self.consume_if(&Token::Newline) {}
             if !self.is_at_end() {
                 match self.parse_declaration() {
-                    Ok(decl) => declarations.push(decl),
+                    Ok(decl) => {
+                        match decl {
+                            box AstNode::PipelineOperation { ref prev, .. } => {
+                                // Special case for pipeline operations
+                                // The pipeline is created as a separate node, but we want to
+                                // merge it with the previous node, if that's the node it refers
+                                if let Some(last_decl) = declarations.last_mut() {
+                                    if last_decl == prev {
+                                        *last_decl = decl;
+                                    }
+                                }
+                            }
+                            _ => declarations.push(decl),
+                        }
+                    },
                     Err(e) => return Err(e),
                 }
             }
@@ -192,6 +181,25 @@ impl Parser {
                 Ok(expr)
             }
             Some(Token::LBracket) => self.parse_array_literal(),
+            Some(Token::Pipeline) => {
+                if let Some(last_node) = self.last_node.clone() {
+                    self.parse_pipeline(last_node)
+                } else {
+                    Err(ParserError::UnexpectedToken(
+                        "Expected expression".to_string(),
+                    ))
+                }
+            }
+            Some(t) => {
+                if let Some(op) = UnaryOperator::from_token(&t) {
+                    self.parse_unary(op)
+                } else {
+                    Err(ParserError::UnexpectedToken(format!(
+                        "in primary expression: {:?}",
+                        t
+                    )))
+                }
+            },
             t => {
                 println!("primary {:?}, tokens {:?}", t, self.tokens);
                 Err(ParserError::UnexpectedToken(format!(
@@ -217,7 +225,16 @@ impl Parser {
             Some(Token::Trait) => self.parse_trait_decl(),
             Some(Token::Handler) => self.parse_handler_decl(),
             Some(Token::Impl) => self.parse_impl_decl(),
-            Some(Token::Shared) => todo!(),
+            Some(Token::Pipeline) => {
+                if let Some(last_node) = self.last_node.clone() {
+                    self.parse_pipeline(last_node)
+                } else {
+                    Err(ParserError::UnexpectedToken(
+                        "Expected expression".to_string(),
+                    ))
+                }
+            }
+            //Some(Token::Shared) => todo!(),
             _ => self.parse_statement(),
         };
 
@@ -232,8 +249,7 @@ impl Parser {
 
         // Consume the newline if present
         self.consume_if(&Token::Newline);
-
-        declaration
+        declaration.map(|node| self.store_node(node))
     }
 
     /// Parses a function declaration.
@@ -774,7 +790,15 @@ impl Parser {
             Some(Token::LBrace) => Ok(P(AstNode::Block(self.parse_block()?))),
             Some(Token::Let) => self.parse_variable_declaration(),
             Some(Token::Run) => todo!(),
-            Some(Token::Pipeline) => todo!(),
+            Some(Token::Pipeline)  => {
+                if let Some(last_node) = self.last_node.clone() {
+                    self.parse_pipeline(last_node)
+                } else {
+                    Err(ParserError::UnexpectedToken(
+                        "Expected expression".to_string(),
+                    ))
+                }
+            },
             _ => self.parse_expression(Precedence::None).and_then(|expr| {
                 self.consume_if(&Token::Semicolon);
                 Ok(expr)
@@ -982,10 +1006,26 @@ impl Parser {
 
     /// Parses an infix expression.
     fn parse_infix(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
-        let prec = self
-            .peek()
+        let next = self.peek();
+        let prec = next
             .map_or_else(|| Precedence::None, |t| Precedence::from_token(t));
         match prec {
+            Precedence::Unary => {
+                let operator = self.advance()
+                    .map(|t| UnaryOperator::from_token(&t).ok_or(
+                        ParserError::UnexpectedToken(
+                            "Expected unary operator".to_string(),
+                        ),
+                    ))
+                    .ok_or(ParserError::UnexpectedToken(
+                        "Expected unary operator".to_string(),
+                    ))??;
+                let operand = self.parse_expression(Precedence::Unary)?;
+                Ok(P(AstNode::UnaryOperation {
+                    operator,
+                    operand,
+                }))
+            },
             Precedence::Term
             | Precedence::Factor
             | Precedence::Equality
@@ -995,8 +1035,17 @@ impl Parser {
             Precedence::Assignment => self.parse_assignment(left),
             Precedence::Pipeline => self.parse_pipeline(left),
             Precedence::Call => self.parse_function_call(left),
+            
             _ => Ok(left),
         }
+    }
+
+    fn parse_unary(&mut self, op: UnaryOperator) -> Result<Box<AstNode>, ParserError> {
+        let operand = self.parse_expression(Precedence::Unary)?;
+        Ok(P(AstNode::UnaryOperation {
+            operator: op,
+            operand,
+        }))
     }
 
     /// Parses an assignment operation.
@@ -1011,10 +1060,11 @@ impl Parser {
     }
 
     /// Parses a pipeline operation.
-    fn parse_pipeline(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
+    fn parse_pipeline(&mut self, prev: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         self.advance(); // Consume the '|>' token
-        let right = self.parse_expression(Precedence::Pipeline)?;
-        Ok(P(AstNode::PipelineOperation { left, right }))
+        println!("parsing pipeline");
+        let next = self.parse_expression(Precedence::Pipeline)?;
+        Ok(P(AstNode::PipelineOperation { prev, next }))
     }
 
     /// Parses a binary operation.
@@ -1038,6 +1088,14 @@ impl Parser {
     fn token_to_binary_operator(&self, token: Token) -> Result<BinaryOperator, ParserError> {
         BinaryOperator::from_token(&token).ok_or(ParserError::UnexpectedToken(format!(
             "Unexpected token for binary operator: {:?}",
+            token
+        )))
+    }
+
+    /// Converts a token to a binary operator.
+    fn token_to_unary_operator(&self, token: Token) -> Result<UnaryOperator, ParserError> {
+        UnaryOperator::from_token(&token).ok_or(ParserError::UnexpectedToken(format!(
+            "Unexpected token for unary operator: {:?}",
             token
         )))
     }
