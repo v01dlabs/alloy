@@ -537,3 +537,34 @@ fn test_parse_error_handling() {
         _ => panic!("Expected ParserError::ExpectedToken, got {:?}", result),
     }
 }
+
+#[test]
+fn test_parse_pipeline_basic() {
+    let input = r#"
+        let processed = data
+            |> map(x -> x * 2)
+            |> filter(x -> x > 0)
+            |> fold(0, (acc, x) -> acc + x)
+    "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse pipeline: {}",
+        result.unwrap_err()
+    );
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap();
+        assert!(matches!(declaration,
+            box AstNode::VariableDeclaration { name, initializer: Some(box AstNode::PipelineOperation { .. }), .. } 
+            if name == "processed"
+        ));
+        if let box AstNode::VariableDeclaration { name, initializer: Some(box AstNode::PipelineOperation { left, right }), .. } = declaration {
+            assert_eq!(name, "processed");
+            assert!(matches!(left.clone(), box AstNode::FunctionCall { .. }));
+            assert!(matches!(right.clone(), box AstNode::FunctionCall { .. }));
+        }
+    }
+}

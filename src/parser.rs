@@ -17,6 +17,7 @@ use std::vec::IntoIter;
 /// The Parser struct holds the state during parsing.
 pub struct Parser {
     tokens: Peekable<IntoIter<Token>>,
+    last_node: Option<Box<AstNode>>,
 }
 
 impl Parser {
@@ -24,6 +25,7 @@ impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Parser {
             tokens: tokens.into_iter().peekable(),
+            last_node: None,
         }
     }
 
@@ -56,6 +58,11 @@ impl Parser {
         } else {
             false
         }
+    }
+
+    fn store_node(&mut self, node: Box<AstNode>) -> Box<AstNode> {
+        self.last_node.replace(node.clone());
+        node    
     }
 
     /// Consumes the expected token or returns an error.
@@ -758,7 +765,7 @@ impl Parser {
     pub fn parse_statement(&mut self) -> Result<Box<AstNode>, ParserError> {
         // Skip any leading newlines
         self.consume_newlines();
-        match self.peek() {
+        let node = match self.peek() {  
             Some(Token::If) => self.parse_if_statement(),
             Some(Token::While) => self.parse_while_statement(),
             Some(Token::For) => self.parse_for_statement(),
@@ -766,11 +773,14 @@ impl Parser {
             Some(Token::Return) => self.parse_return_statement(),
             Some(Token::LBrace) => Ok(P(AstNode::Block(self.parse_block()?))),
             Some(Token::Let) => self.parse_variable_declaration(),
+            Some(Token::Run) => todo!(),
+            Some(Token::Pipeline) => todo!(),
             _ => self.parse_expression(Precedence::None).and_then(|expr| {
                 self.consume_if(&Token::Semicolon);
                 Ok(expr)
             }),
-        }
+        };
+        node.map(|node| self.store_node(node))
     }
 
     /// Parses an if statement.
