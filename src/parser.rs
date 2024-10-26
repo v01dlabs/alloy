@@ -137,6 +137,7 @@ impl Parser {
 
     fn consume_newlines(&mut self) {
         while self.consume_if(&Token::Newline) {}
+        println!("consumed newlines");
     }
     /// Parses the entire program.
     pub fn parse(&mut self) -> Result<Box<AstNode>, ParserError> {
@@ -144,7 +145,6 @@ impl Parser {
         while !self.is_at_end() {
             // Skip any leading newlines
             while self.consume_if(&Token::Newline) {}
-
             if !self.is_at_end() {
                 match self.parse_declaration() {
                     Ok(decl) => declarations.push(decl),
@@ -197,7 +197,9 @@ impl Parser {
 
     /// Parses a declaration (function or variable).
     pub fn parse_declaration(&mut self) -> Result<Box<AstNode>, ParserError> {
+        println!("parsing declaration");
         let next = self.peek().map(Token::ident_to_keyword);
+        println!("next: {:?}", next);
         let declaration = match next {
             Some(Token::Let) => self.parse_variable_declaration(),
             Some(Token::Fn) => self.parse_function_declaration(),
@@ -234,14 +236,17 @@ impl Parser {
     }
 
     fn parse_struct_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        self.consume(&Token::Struct)?;
         let (name, generic_params) = self.parse_delc_start()?;
         self.consume_newlines(); 
         let mut members = ThinVec::new();
         let next = self.peek();
         
         if next == Some(&Token::LParen) {
+            println!("parsing tuple struct");
             self.parse_tuple_struct_decl(name, generic_params)
         } else {
+            println!("parsing struct");
             if self.is_marker()? {
                 return Ok(P(AstNode::StructDeclaration {
                     name,
@@ -297,6 +302,7 @@ impl Parser {
     }
 
     fn parse_enum_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        self.consume(&Token::Enum)?;
         let (name, generic_params) = self.parse_delc_start()?;
         self.consume_newlines();
         let mut variants = ThinVec::new();
@@ -317,6 +323,7 @@ impl Parser {
     }
 
     fn parse_trait_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        self.consume(&Token::Trait)?;
         let (name, generic_params) = self.parse_delc_start()?;
         self.consume_newlines();
         let mut bounds = None;
@@ -351,13 +358,17 @@ impl Parser {
     }
 
     fn parse_union_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        self.consume(&Token::Union)?;
         let (name, generic_params) = self.parse_delc_start()?;
         self.consume_newlines();
         todo!()
     }
 
     fn parse_effect_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        print!("parsing effect decl: ");
+        self.consume(&Token::Effect)?;
         let (name, generic_params) = self.parse_delc_start()?;
+        println!("{:?}[{:?}]", name, generic_params);
         self.consume_newlines();
         let mut bounds = None;
         if self.consume_if(&Token::Colon) {
@@ -391,6 +402,7 @@ impl Parser {
     }
 
     fn parse_handler_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        self.consume(&Token::Handler)?;
         // do we need additional generics here?
         let (name, generic_params) = self.parse_delc_start()?;
         self.consume_newlines();
@@ -437,6 +449,7 @@ impl Parser {
     /// Parses a declaration for an implementation of a trait, struct, enum, etc.
     /// We can't distinguish them at this stage, that will happen later
     fn parse_impl_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
+        self.consume(&Token::Impl)?;
         // do we need additional generics here?
         let (name, generic_params) = self.parse_delc_start()?;
         self.consume_newlines();
@@ -489,7 +502,7 @@ impl Parser {
             Some(&Token::Shared) => todo!(),
             Some(&Token::Type) => todo!(),
             _ => match kind {
-                ImplKind::Struct => self.parse_variable_declaration(),
+                ImplKind::Struct => self.parse_struct_field(),
                 ImplKind::Enum => self.parse_enum_variant(),
                 _ => self.parse_statement(), // Maybe we should return an error here?
             }
@@ -504,6 +517,10 @@ impl Parser {
 
     fn parse_enum_variant(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.parse_struct_decl()
+    }
+
+    fn parse_struct_field(&mut self) -> Result<Box<AstNode>, ParserError> {
+        self.finish_variable_declaration()
     }
 
     fn parse_type_op(&mut self) -> Result<TypeOp, ParserError> {
@@ -565,8 +582,11 @@ impl Parser {
             None
         };
         println!("{}({:?}) -> {:?}", name, params, return_type);
-        let body = self.parse_block()?;
-
+        let body = if self.peek() == Some(&Token::LBrace) {
+            self.parse_block()?
+        } else {
+            ThinVec::new()
+        };
         Ok(P(AstNode::FunctionDeclaration {
             name,
             attrs: ThinVec::new(),  
@@ -708,6 +728,10 @@ impl Parser {
     /// Parses a variable declaration.
     fn parse_variable_declaration(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Let)?;
+        self.finish_variable_declaration()
+    }
+
+    fn finish_variable_declaration(&mut self) -> Result<Box<AstNode>, ParserError> {
         let mutable = self.consume_if(&Token::Mut);
         let name = self.parse_identifier()?;
         let type_annotation = if self.consume_if(&Token::Colon) {

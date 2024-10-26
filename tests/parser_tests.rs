@@ -1,11 +1,10 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{AstNode, BinaryOperator, Precedence},
+    ast::{ty::{FnRetTy, Function, GenericParam, Ty, TyKind}, AstNode, BinaryOperator, Precedence},
     error::ParserError,
     lexer::{Lexer, Token},
-    parser::Parser,
-    ast::ty::{FnRetTy, Function, GenericParam, Ty, TyKind},
+    parser::{parse, Parser},
 };
 use thin_vec::thin_vec;
 
@@ -343,6 +342,83 @@ fn test_parse_complex_expression() {
             }
         } if a == "a" && b == "b"
     ));
+}
+
+#[test]
+fn test_basic_effect() {
+    let input = r#"
+    effect IO {
+        read_line() -> String
+        print(str: String)
+    }
+    "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse effect declaration: {}",
+        result.unwrap_err()
+    );
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap();
+        assert!(matches!(declaration,
+            box AstNode::EffectDeclaration { .. } 
+        ));
+        if let box AstNode::EffectDeclaration { name, members, .. } = declaration {
+            assert_eq!(name, "IO");
+            assert_eq!(members.len(), 2);
+            assert!(matches!(members[0].clone(), box AstNode::FunctionDeclaration { name, 
+                function: Function { inputs, output, .. }, .. } if name == "read_line" && inputs.len() == 0 
+                && matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "String")));
+            assert!(matches!(members[1].clone(), box AstNode::FunctionDeclaration { name, 
+                function: Function { inputs, output, .. }, .. } if name == "print" && inputs.len() == 1 
+                && matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Tuple(t)}) if t.len() == 0)));
+        }
+    } else {        
+        panic!("Expected EffectDeclaration, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_struct_decl() {
+    let input = r#"
+    struct List[T] {
+        head: Option[T]
+        tail: Option[Box[List[T]]]
+    }
+    "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse struct declaration: {}",
+        result.unwrap_err()
+    );
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap();
+        assert!(matches!(declaration,
+            box AstNode::StructDeclaration { .. } 
+        ));
+        if let box AstNode::StructDeclaration { name, members, .. } = declaration {
+            assert_eq!(name, "List");
+            assert_eq!(members.len(), 2);
+            assert!(matches!(members[0].clone(), 
+                box AstNode::VariableDeclaration { name, 
+                    type_annotation: Some(box Ty { kind: TyKind::Generic(type_name,..), .. }), .. 
+                } if name == "head" && type_name == "Option")
+            );
+            assert!(matches!(members[1].clone(), 
+                box AstNode::VariableDeclaration { name, 
+                    type_annotation: Some(box Ty { kind: TyKind::Generic(type_name, ..), .. }), .. 
+                } if name == "tail" && type_name == "Option")
+            );
+            // TODO: verify the full generic type
+        }
+    }
 }
 
 #[test]
