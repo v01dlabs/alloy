@@ -5,7 +5,7 @@
 //! the program is well-typed according to Alloy's type system.
 
 use thin_vec::{thin_vec, ThinVec};
-use tracing::instrument;
+use tracing::{error, instrument};
 
 use crate::{
     ast::{
@@ -148,10 +148,27 @@ impl TypeChecker {
                     })
                     .collect();
                 let mut return_type = Type::from(output.clone());
+                let attrs = FnAttr::from_list(attrs);
+                let fn_type = Type::Function(Function {
+                    generic_params: generic_params.clone().into_iter().map(Into::into).collect(),
+                    inputs: inputs
+                        .iter()
+                        .zip(param_types.iter())
+                        .map(|(t1, t2)| Param {
+                            name: t1.name.clone(),
+                            ty: P(*t2.clone()),
+                        })
+                        .collect(),
+                    // TODO: Placeholder for now  
+                    attrs: attrs.clone(),
+                    output: P(return_type.clone()),
+                });
+                
+                fn_checker.insert_function(name, &fn_type, attrs.clone(), None);
                 for statement in body.iter() {
                     if let &box AstNode::ReturnStatement(ref expr) = statement {
                         let statement_type = if let Some(expr) = expr {
-                            fn_checker.infer_type(expr)?
+                            fn_checker.infer_type(expr).inspect_err(|e|{error!(%e);})?
                         } else {
                             Type::unit()
                         };
@@ -166,10 +183,10 @@ impl TypeChecker {
                         return_type = statement_type.infer_or_type(&return_type).clone();
                         break;
                     }
-                    let statement_type = fn_checker.infer_type(statement)?;
+                    let statement_type = fn_checker.infer_type(statement)
+                        .inspect_err(|e|{error!(%e);})?;
                     fn_checker.add_anon_type(&statement_type);
                 }
-                let attrs = FnAttr::from_list(attrs);
                 let fn_type = Type::Function(Function {
                     generic_params: generic_params.clone().into_iter().map(Into::into).collect(),
                     inputs: inputs
@@ -197,11 +214,13 @@ impl TypeChecker {
                 let var_type = annotation_to_type(type_annotation);
                 if let Some(initializer) = initializer {
                     if var_type == Type::Infer {
-                        let inferred_type = self.infer_type(initializer)?;
+                        let inferred_type = self.infer_type(initializer)
+                            .inspect_err(|e|{error!(%e);})?;
                         self.insert_variable(&name, &inferred_type, bind_attr);
                         Ok(inferred_type)
                     } else {
-                        let inferred_type = self.infer_type(initializer)?;
+                        let inferred_type = self.infer_type(initializer)
+                            .inspect_err(|e|{error!(%e);})?;
                         if inferred_type != Type::Infer && inferred_type != var_type {
                             Err(TypeError {
                                 message: format!(
@@ -232,7 +251,7 @@ impl TypeChecker {
                 then_branch,
                 else_branch,
             } => {
-                let cond_type = self.infer_type(condition)?;
+                let cond_type = self.infer_type(condition).inspect_err(|e|{error!(%e);})?;
                 if cond_type != Type::Bool {
                     Err(TypeError {
                         message: format!(
@@ -241,9 +260,9 @@ impl TypeChecker {
                         ),
                     })
                 } else {
-                    let then_type = self.infer_type(then_branch)?;
+                    let then_type = self.infer_type(then_branch).inspect_err(|e|{error!(%e);})?;
                     if let Some(else_branch) = else_branch {
-                        let else_type = self.infer_type(else_branch)?;
+                        let else_type = self.infer_type(else_branch).inspect_err(|e|{error!(%e);})?;
                         if then_type != else_type {
                             Err(TypeError {
                                 message: format!("then and else branches of if statement should have the same type,
@@ -257,7 +276,7 @@ impl TypeChecker {
                 }
             }
             AstNode::WhileLoop { condition, body } => {
-                let cond_type = self.infer_type(condition)?;
+                let cond_type = self.infer_type(condition).inspect_err(|e|{error!(%e);})?;
                 if cond_type != Type::Bool {
                     Err(TypeError {
                         message: format!(
@@ -274,7 +293,7 @@ impl TypeChecker {
                 iterable,
                 body,
             } => {
-                let iter_type = self.infer_type(iterable)?;
+                let iter_type = self.infer_type(iterable).inspect_err(|e|{error!(%e);})?;
                 if let Type::Array(ty) = iter_type {
                     let mut loop_checker = self.copy_env();
                     loop_checker.insert_variable(&item, &ty, 
@@ -289,7 +308,7 @@ impl TypeChecker {
                 }
             }
             AstNode::GuardStatement { condition, body } => {
-                let cond_type = self.infer_type(condition)?;
+                let cond_type = self.infer_type(condition).inspect_err(|e|{error!(%e);})?;
                 if cond_type != Type::Bool {
                     Err(TypeError {
                         message: format!(
@@ -298,13 +317,13 @@ impl TypeChecker {
                         ),
                     })
                 } else {
-                    let body_type = self.infer_type(body)?;
+                    let body_type = self.infer_type(body).inspect_err(|e|{error!(%e);})?;
                     Ok(body_type)
                 }
             }
             AstNode::ReturnStatement(ast_node) => {
                 if let Some(expr) = ast_node {
-                    self.infer_type(expr)
+                    self.infer_type(expr).inspect_err(|e|{error!(%e);})
                 } else {
                     Ok(Type::unit())
                 }
@@ -321,16 +340,16 @@ impl TypeChecker {
                 operator,
                 right,
             } => {
-                let left_type = self.infer_type(left)?;
-                let right_type = self.infer_type(right)?;
+                let left_type = self.infer_type(left).inspect_err(|e|{error!(%e);})?;
+                let right_type = self.infer_type(right).inspect_err(|e|{error!(%e);})?;
                 self.typecheck_binary_op(operator, &left_type, &right_type)
             }
             AstNode::UnaryOperation { operator, operand } => {
-                let operand_type = self.infer_type(operand)?;
+                let operand_type = self.infer_type(operand).inspect_err(|e|{error!(%e);})?;
                 self.typecheck_unary_op(operator, &operand_type)
             }
             AstNode::FunctionCall { callee, arguments } => {
-                let callee_type = self.infer_type(callee)?;
+                let callee_type = self.infer_type(callee).inspect_err(|e|{error!(%e);})?;
                 if let Type::Function(function) = callee_type {
                     if arguments.len() != function.inputs.len() {
                         return Err(TypeError {
@@ -343,7 +362,7 @@ impl TypeChecker {
                     }
                     let return_type = function.output.clone();
                     for (argument, param_type) in arguments.iter().zip(function.inputs.iter()) {
-                        let arg_type = self.infer_type(argument)?;
+                        let arg_type = self.infer_type(argument).inspect_err(|e|{error!(%e);})?;
                         if arg_type != *param_type.ty {
                             return Err(TypeError {
                                 message: format!(
@@ -369,6 +388,7 @@ impl TypeChecker {
                 match *callee_type {
                     Type::Function(function) => {
                         self.typecheck_function_call(&function, arguments, generic_args)
+                            .inspect_err(|e|{error!(%e);})
                     }
                     e => Err(TypeError {
                         message: format!("Expected function, got {:?}, error: {:?}", name, e),
@@ -388,7 +408,7 @@ impl TypeChecker {
                         // Currently assuming the last argument is the closure, as in Kotlin
                         full_args.push(closure.clone());
                         generic_arguments.append(&mut generic_args.clone());
-                        self.resolve_function(name)?
+                        self.resolve_function(name).inspect_err(|e|{error!(%e);})?
                     }
                     box AstNode::FunctionCall {
                         ref callee,
@@ -397,7 +417,7 @@ impl TypeChecker {
                         full_args.append(&mut arguments.clone());
                         // Currently assuming the last argument is the closure, as in Kotlin
                         full_args.push(closure.clone());
-                        P(self.infer_type(callee)?)
+                        P(self.infer_type(callee).inspect_err(|e|{error!(%e);})?)
                     }
                     box AstNode::Identifier(ref name) => {
                         P(self.resolve_ident(name)?.ty)
@@ -428,7 +448,7 @@ impl TypeChecker {
                 Ok(prev_type)
             }
             AstNode::Identifier(ident) => {
-                Ok(self.resolve_ident(ident)?.ty)
+                Ok(self.resolve_ident(ident).inspect_err(|e|{error!(%e);})?.ty)
             }
             AstNode::IntLiteral(_) => Ok(Type::Int(IntTy::Int)),
             AstNode::FloatLiteral(_) => Ok(Type::Float),
@@ -653,6 +673,7 @@ impl TypeChecker {
         }
     }
 
+    #[instrument]
     pub fn typecheck_array_literal(
         &mut self,
         elements: &ThinVec<Box<AstNode>>,
@@ -660,9 +681,11 @@ impl TypeChecker {
         if elements.is_empty() {
             return Ok(Type::Array(P(Type::Infer)));
         }
-        let mut first_type = self.infer_type(elements.first().unwrap())?;
+        let mut first_type = self.infer_type(elements.first().unwrap())
+            .inspect_err(|e|{error!(%e);})?;
         for element in elements.iter().skip(1) {
-            let element_type = self.infer_type(element)?;
+            let element_type = self.infer_type(element)
+                .inspect_err(|e|{error!(%e);})?;
             if first_type == Type::Infer {
                 // If we couldn't immediately figure out the first type, maybe the next one will work
                 first_type = element_type.clone();
@@ -680,6 +703,7 @@ impl TypeChecker {
         Ok(Type::Array(P(first_type)))
     }
 
+    #[instrument(skip(self))]
     pub fn typecheck_program(&mut self, program: &AstNode) -> Result<(), TypeError> {
         self.infer_type(program)?;
         Ok(())

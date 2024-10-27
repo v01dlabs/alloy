@@ -9,11 +9,22 @@ use alloy::{
 use thin_vec::thin_vec;
 use tracing_subscriber;
 
+fn init_tracing() {
+    let format = tracing_subscriber::fmt::format()
+        .pretty();
+
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .event_format(format)
+        .with_test_writer()
+        .with_ansi(true)
+        .try_init();
+}
 
 
 // Helper function to create a parser from a vector of tokens
 fn create_parser(tokens: Vec<Token>) -> Parser {
-    let _ = tracing_subscriber::fmt::try_init();
+    init_tracing();
     Parser::new(tokens)
 }
 
