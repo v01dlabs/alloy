@@ -238,6 +238,16 @@ pub struct FnAttr {
     pub effects: ThinVec<Box<WithClauseItem>>,
 }
 
+impl FnAttr {
+    pub fn with_clause(effects: ThinVec<Box<WithClauseItem>>) -> Self {
+        Self {
+            is_async: false,
+            is_shared: false,
+            effects,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Visibility {
     Local(Option<Path>),
@@ -329,6 +339,10 @@ impl Expr {
         }
     }
 
+    pub fn literal(value: Literal) -> Self {
+        Self { kind: ExprKind::Literal(value), tokens: Arc::new(ThinVec::new()) }
+    }
+
     pub fn binary(operator: BinaryOperator, left: Box<Expr>, right: Box<Expr>) -> Self {
         let tokens: ThinVec<Token> = left.tokens.as_slice().iter()
             .chain(right.tokens.as_slice()).cloned().collect();
@@ -346,9 +360,6 @@ impl Expr {
             kind: ExprKind::Cast(expr, ty),
             tokens: Arc::new(tokens),
         }
-    }
-    pub fn literal(value: Literal) -> Self {
-        Self { kind: ExprKind::Literal(value), tokens: Arc::new(ThinVec::new()) }
     }
     pub fn let_(pat: Box<Pattern>, ty: Box<Expr>, init: Box<Expr>) -> Self {
         let tokens: ThinVec<Token> = pat.tokens.as_slice().iter()

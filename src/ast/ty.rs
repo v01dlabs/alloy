@@ -41,6 +41,13 @@ impl Ty {
         }
     }
 
+    pub fn infer() -> Self {
+        Ty {
+            kind: TyKind::Infer,
+            tokens: Arc::new(ThinVec::new()),
+        }
+    }
+
     pub fn self_type() -> Self {        
         Ty {
             kind: TyKind::SelfType,

@@ -4,6 +4,7 @@
 //! and constructing an Abstract Syntax Tree (AST) that represents the structure
 //! of an Alloy program.
 
+use futures::stream::Next;
 use rand::seq::index;
 use thin_vec::{thin_vec, ThinVec};
 use tracing::{debug, error, info, instrument, trace};
@@ -382,7 +383,7 @@ impl Parser {
         Ok(P(Item::enum_(name.to_simple().unwrap(), generic_params, ThinVec::new(), variants)))
     }
 
-    fn parse_pattern(&mut self) -> Result<Box<Pattern>, ParserError> {
+    fn parse_pattern(&mut self) -> Result<Pattern, ParserError> {
         todo!()
     }
 
@@ -1275,9 +1276,16 @@ impl Parser {
     /// Parses an identifier.
     #[instrument]
     fn parse_identifier(&mut self) -> Result<Pattern, ParserError> {
-        match self.advance() {
-            Some(Token::Identifier(name)) => Ok(Pattern::id_simple(name)),
-            _ => Err(ParserError::ExpectedToken(
+        let next = self.peek().map(|t| t.clone());  
+        match next {
+            Some(Token::Identifier(name)) => {
+                self.advance();
+                Ok(Pattern::id_simple(name))
+            },
+            Some(_) => {
+                self.parse_pattern()
+            },
+            None => Err(ParserError::ExpectedToken(
                 "identifier".to_string(),
                 format!("{:?}", self.peek()),
             )),

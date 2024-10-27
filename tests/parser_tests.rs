@@ -1,7 +1,7 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{ty::{FnRetTy, Function, GenericParam, GenericParamKind, Mutability, Param, Path, Pattern, Ty, TyKind}, AstElem, AstNode, BinaryOperator, BindAttr, Expr, FnAttr, Item, Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P},
+    ast::{ty::{FnRetTy, Function, GenericParam, GenericParamKind, Mutability, Param, Path, Pattern, Ty, TyKind}, AstElem, AstNode, BinaryOperator, BindAttr, Expr, FnAttr, ImplKind, Item, Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P},
     error::ParserError,
     lexer::{token::Token, Lexer},
     parser::{parse, Parser},
@@ -689,7 +689,7 @@ fn test_parse_multi_pipeline() {
                     )),
                 )),
             )))),
-            // current error is missing the function call here
+            // current parsing error is missing the function call here
             P(Expr::trailing_closure(
                 P(Expr::call(
                     P(Expr::path(None, Path::ident("fold".to_string()))),
@@ -733,35 +733,39 @@ fn test_simple_impl_block() {
         "Failed to parse impl block: {}",
         result.unwrap_err()
     );
-    // if let Ok(box AstNode::Program(declarations)) = result {
-    //     assert_eq!(declarations.len(), 1);
-    //     let declaration = declarations.first().unwrap().clone();
-    //     assert!(matches!(declaration,
-    //         box AstNode::ImplDeclaration { .. } 
-    //     ));
-    //     if let box AstNode::ImplDeclaration { name, generic_params, 
-    //         kind, target, target_generic_params, 
-    //         where_clause, bounds, members 
-    //     } = declaration
-    //     {
-    //         assert_eq!(name, "Display");
-    //         assert_eq!(target, "Point");
-    //         assert!(generic_params.is_empty());
-    //         assert!(target_generic_params.is_empty());
-    //         assert!(where_clause.is_empty());
-    //         assert!(bounds.is_none());
-    //         assert_eq!(members.len(), 1);
-    //         assert!(matches!(members[0].clone(), 
-    //             box AstNode::FunctionDeclaration { name, 
-    //                 function: Function { inputs, output, .. }, .. } if name == "display" && inputs.len() == 1 
-    //             && matches!(
-    //                 output.clone(), 
-    //                 FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "String"
-    //             )));
-    //     }
-    // } else {        
-    //     panic!("Expected Program, got {:?}", result);
-    // }
+    let expected = P(AstElem::program(thin_vec![
+        P(AstElem::item(P(Item::impl_(
+            "Display".to_string(),
+            thin_vec![],
+            ImplKind::Infer,
+            "Point".to_string(),
+            thin_vec![],
+            None,
+            thin_vec![],
+            thin_vec![
+                P(AstElem::item(P(Item::fn_(
+                    "display".to_string(),
+                    thin_vec![],
+                    Function {
+                        generic_params: thin_vec![],
+                        inputs: thin_vec![
+                            Param {
+                                name: "self".to_string(),
+                                ty: P(Ty::self_type()),
+                            },
+                        ],
+                        output: FnRetTy::Ty(P(Ty::simple("String".to_string()))),
+                    },
+                    thin_vec![
+                        P(Statement::expr(P(Expr::literal(
+                            Literal::String("Point({self.x}, {self.y})".to_string())
+                        ))))
+                    ],
+                )))),
+            ],
+        )))),
+    ]));
+    assert_eq!(result.unwrap(), expected);
 }
 
 #[test]
@@ -779,29 +783,39 @@ fn test_with_clause_simple() {
         "Failed to parse with clause: {}",
         result.unwrap_err()
     );
-    
-    // if let Ok(box AstNode::Program(declarations)) = result {
-    //     assert_eq!(declarations.len(), 1);
-    //     let declaration = declarations.first().unwrap().clone();
-    //     assert!(matches!(declaration.clone(),
-    //         box AstNode::FunctionDeclaration { name, attrs: _, function: Function { inputs, .. }, .. } 
-    //         if name == "generate_id" && inputs.len() == 0
-    //     ));
-    //     if let box AstNode::FunctionDeclaration {
-    //          name: _, attrs, function: Function { inputs: _, output, .. }, .. 
-    //     } = declaration.clone() {
-    //         assert!(matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "i32"));
-    //         assert_eq!(attrs.len(), 1);
-    //         assert!(matches!(attrs[0].clone(), 
-    //             FnAttr { is_async, is_shared, effects } if is_async == false && is_shared == false && effects.len() == 1 
-    //             && matches!(effects[0].clone(), 
-    //                 box WithClauseItem::Generic(GenericParam { name, kind: GenericParamKind::Type(None), .. }) if name == "Random"
-    //             )
-    //         ));
-    //     } else {
-    //         panic!("Expected FunctionDeclaration, got {:?}", declaration);
-    //     }
-    // } else {        
-    //     panic!("Expected Program, got {:?}", result);
-    // }
+    let expected = P(AstElem::program(thin_vec![
+        P(AstElem::item(P(Item::fn_(
+            "generate_id".to_string(),
+            thin_vec![
+                FnAttr::with_clause(
+                    thin_vec![
+                        P(WithClauseItem::Generic(GenericParam {
+                            name: "Random".to_string(),
+                            kind: GenericParamKind::Type(None),
+                            attrs: thin_vec![],
+                            bounds: None,
+                            is_placeholder: false,
+                        })),
+                    ]
+                )
+            ],
+            Function {
+                generic_params: thin_vec![],
+                inputs: thin_vec![],
+                output: FnRetTy::Ty(P(Ty::simple("i32".to_string()))),
+            },
+            thin_vec![
+                P(Statement::expr(P(Expr::call(
+                    P(Expr::path(None, Path::ident("next_int".to_string()))),
+                    None,
+                    thin_vec![
+                        P(Expr::literal(Literal::Int(0))),
+                        P(Expr::literal(Literal::Int(1000))),
+                    ],  
+                ))))
+            ],
+        )))),
+    ]));
+    assert_eq!(result.unwrap(), expected);
+
 }
