@@ -1,16 +1,30 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{AstNode, BinaryOperator, Precedence},
+    ast::{ty::{FnRetTy, Function, GenericParam, GenericParamKind, Ty, TyKind}, AstNode, BinaryOperator, FnAttr, Precedence, UnaryOperator, WithClauseItem, P},
     error::ParserError,
     lexer::{Lexer, Token},
-    parser::Parser,
-    ast::ty::{FnRetTy, Function, GenericParam, Ty, TyKind},
+    parser::{parse, Parser},
 };
 use thin_vec::thin_vec;
+use tracing_subscriber;
+
+fn init_tracing() {
+    let format = tracing_subscriber::fmt::format()
+        .pretty();
+
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .event_format(format)
+        .with_test_writer()
+        .with_ansi(true)
+        .try_init();
+}
+
 
 // Helper function to create a parser from a vector of tokens
 fn create_parser(tokens: Vec<Token>) -> Parser {
+    init_tracing();
     Parser::new(tokens)
 }
 
@@ -35,10 +49,26 @@ fn test_parse_variable_declaration() {
     assert!(matches!(result,
         Ok(box AstNode::VariableDeclaration {
             name,
-            mutable: _,
+            attrs: _,
             type_annotation: Some(box Ty { kind: TyKind::Simple(type_name) }),
             initializer: Some(box AstNode::IntLiteral(5))
         }) if name == "x" && type_name == "int"
+    ));
+}
+
+#[test]
+fn test_parse_unary_operator() {
+    let tokens = vec![
+        Token::Not,
+        Token::Identifier("x".to_string()),
+        Token::Semicolon,
+    ];
+    let mut parser = create_parser(tokens);
+    let result = parser.parse_declaration().unwrap();
+    assert!(matches!(result,
+        box AstNode::UnaryOperation { 
+            operator: UnaryOperator::Not, operand: box AstNode::Identifier(x) 
+        } if x == "x"
     ));
 }
 
@@ -75,6 +105,7 @@ fn test_parse_function_declaration() {
     match result {
         box AstNode::FunctionDeclaration {
             name,
+            attrs: _,
             function:
                 Function {
                     generic_params,
@@ -121,7 +152,7 @@ fn test_parse_multiple_declarations() {
         Token::Newline,
         Token::Eof,
     ];
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse();
     assert!(result.is_ok());
     if let Ok(box AstNode::Program(declarations)) = result {
@@ -203,7 +234,7 @@ fn test_parse_while_loop() {
 fn test_parse_for_statement() {
     let source = "for name in names { print(name) }";
     let tokens = Lexer::tokenize(source).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse_statement();
     assert!(
         result.is_ok(),
@@ -243,8 +274,8 @@ fn test_parse_pipeline_operator() {
     assert!(matches!(
         result,
         box AstNode::PipelineOperation {
-            left: box AstNode::PipelineOperation { .. },
-            right: box AstNode::FunctionCall { .. },
+            prev: box AstNode::PipelineOperation { .. },
+            next: box AstNode::FunctionCall { .. },
         }
     ));
 }
@@ -254,7 +285,7 @@ fn test_parse_trailing_closure() {
     let source = "someFunction() { in return 42 }";
     let tokens = Lexer::tokenize(source).unwrap();
     println!("{:?}", tokens);
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse_expression(Precedence::None);
     assert!(
         result.is_ok(),
@@ -345,10 +376,87 @@ fn test_parse_complex_expression() {
 }
 
 #[test]
+fn test_basic_effect() {
+    let input = r#"
+    effect IO {
+        read_line() -> String
+        print(str: String)
+    }
+    "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = create_parser(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse effect declaration: {}",
+        result.unwrap_err()
+    );
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap().clone();
+        assert!(matches!(declaration,
+            box AstNode::EffectDeclaration { .. } 
+        ));
+        if let box AstNode::EffectDeclaration { name, members, .. } = declaration {
+            assert_eq!(name, "IO");
+            assert_eq!(members.len(), 2);
+            assert!(matches!(members[0].clone(), box AstNode::FunctionDeclaration { name, 
+                function: Function { inputs, output, .. }, .. } if name == "read_line" && inputs.len() == 0 
+                && matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "String")));
+            assert!(matches!(members[1].clone(), box AstNode::FunctionDeclaration { name, 
+                function: Function { inputs, output, .. }, .. } if name == "print" && inputs.len() == 1 
+                && matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Tuple(t)}) if t.len() == 0)));
+        }
+    } else {        
+        panic!("Expected EffectDeclaration, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_struct_decl() {
+    let input = r#"
+    struct List[T] {
+        head: Option[T]
+        tail: Option[Box[List[T]]]
+    }
+    "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = create_parser(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse struct declaration: {}",
+        result.unwrap_err()
+    );
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap().clone();
+        assert!(matches!(declaration,
+            box AstNode::StructDeclaration { .. } 
+        ));
+        if let box AstNode::StructDeclaration { name, members, .. } = declaration {
+            assert_eq!(name, "List");
+            assert_eq!(members.len(), 2);
+            assert!(matches!(members[0].clone(), 
+                box AstNode::VariableDeclaration { name, 
+                    type_annotation: Some(box Ty { kind: TyKind::Generic(type_name,..), .. }), .. 
+                } if name == "head" && type_name == "Option")
+            );
+            assert!(matches!(members[1].clone(), 
+                box AstNode::VariableDeclaration { name, 
+                    type_annotation: Some(box Ty { kind: TyKind::Generic(type_name, ..), .. }), .. 
+                } if name == "tail" && type_name == "Option")
+            );
+            // TODO: verify the full generic type
+        }
+    }
+}
+
+#[test]
 fn test_parse_generic_type_annotation() {
     let source = "let x: Array[int] = [1, 2, 3]";
     let tokens = Lexer::tokenize(source).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse_declaration();
     assert!(
         result.is_ok(),
@@ -357,7 +465,7 @@ fn test_parse_generic_type_annotation() {
     );
     if let Ok(box AstNode::VariableDeclaration {
         name,
-        mutable: _,
+        attrs: _,
         type_annotation,
         initializer,
     }) = result
@@ -394,7 +502,7 @@ fn test_parse_nested_generic_type_annotation() {
     assert!(matches!(result,
         box AstNode::VariableDeclaration {
             name,
-            mutable: _,
+            attrs: _,
             type_annotation: Some(box Ty { kind: TyKind::Generic(base_type, params) }),
             initializer: None
         } if name == "x" && base_type == "Map" && params.len() == 2
@@ -405,7 +513,7 @@ fn test_parse_nested_generic_type_annotation() {
 fn test_parse_function_with_generic_return_type() {
     let source = "fn getValues() -> Array[int] { return [1, 2, 3] }";
     let tokens = Lexer::tokenize(source).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse_declaration();
     assert!(
         result.is_ok(),
@@ -414,6 +522,7 @@ fn test_parse_function_with_generic_return_type() {
     );
     if let Ok(box AstNode::FunctionDeclaration {
         name,
+        attrs: _,
         function:
             Function {
                 generic_params,
@@ -448,7 +557,7 @@ fn test_parse_error_handling() {
         Token::Newline,
         Token::Eof,
     ];
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse();
     assert!(result.is_err());
     match result {
@@ -457,5 +566,126 @@ fn test_parse_error_handling() {
             assert_eq!(found, "Let");
         }
         _ => panic!("Expected ParserError::ExpectedToken, got {:?}", result),
+    }
+}
+
+#[test]
+fn test_parse_multi_pipeline() {
+    let input = r#"
+        let processed = data
+            |> map { x in x * 2 }
+            |> filter { x in  x > 0 } 
+            |> fold(0) { acc, x in acc + x }
+    "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = create_parser(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse pipeline: {}",
+        result.unwrap_err()
+    );
+    println!("{:#?}", result);
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap().clone();
+        if let box AstNode::PipelineOperation { prev, next, .. } = declaration {
+            assert!(matches!(prev.clone(), box AstNode::PipelineOperation { .. }));
+            assert!(matches!(next.clone(), box AstNode::TrailingClosure { .. }));
+        } else {
+            panic!("Expected PipelineOperation, got {:?}", declaration);
+        }
+    } else {
+        panic!("Expected Program, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_simple_impl_block() {
+    let input = r#"
+        impl Display for Point {
+            fn display(self) -> String {
+                "Point({self.x}, {self.y})"
+            }
+        }
+    "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = create_parser(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse impl block: {}",
+        result.unwrap_err()
+    );
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap().clone();
+        assert!(matches!(declaration,
+            box AstNode::ImplDeclaration { .. } 
+        ));
+        if let box AstNode::ImplDeclaration { name, generic_params, 
+            kind, target, target_generic_params, 
+            where_clause, bounds, members 
+        } = declaration
+        {
+            assert_eq!(name, "Display");
+            assert_eq!(target, "Point");
+            assert!(generic_params.is_empty());
+            assert!(target_generic_params.is_empty());
+            assert!(where_clause.is_empty());
+            assert!(bounds.is_none());
+            assert_eq!(members.len(), 1);
+            assert!(matches!(members[0].clone(), 
+                box AstNode::FunctionDeclaration { name, 
+                    function: Function { inputs, output, .. }, .. } if name == "display" && inputs.len() == 1 
+                && matches!(
+                    output.clone(), 
+                    FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "String"
+                )));
+        }
+    } else {        
+        panic!("Expected Program, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_with_clause_simple() {
+    let input = r#"
+        fn generate_id() -> i32 with Random {
+            next_int(0, 1000)
+        }
+        "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse with clause: {}",
+        result.unwrap_err()
+    );
+    
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap().clone();
+        assert!(matches!(declaration.clone(),
+            box AstNode::FunctionDeclaration { name, attrs: _, function: Function { inputs, .. }, .. } 
+            if name == "generate_id" && inputs.len() == 0
+        ));
+        if let box AstNode::FunctionDeclaration {
+             name: _, attrs, function: Function { inputs: _, output, .. }, .. 
+        } = declaration.clone() {
+            assert!(matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "i32"));
+            assert_eq!(attrs.len(), 1);
+            assert!(matches!(attrs[0].clone(), 
+                FnAttr { is_async, is_shared, effects } if is_async == false && is_shared == false && effects.len() == 1 
+                && matches!(effects[0].clone(), 
+                    box WithClauseItem::Generic(GenericParam { name, kind: GenericParamKind::Type(None), .. }) if name == "Random"
+                )
+            ));
+        } else {
+            panic!("Expected FunctionDeclaration, got {:?}", declaration);
+        }
+    } else {        
+        panic!("Expected Program, got {:?}", result);
     }
 }

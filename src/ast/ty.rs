@@ -1,7 +1,7 @@
 use thin_vec::ThinVec;
 
 use crate::{
-    ast::AstNode, type_checker::Type}
+    ast::{AstNode, WithClauseItem}, type_checker::Type}
 ;
 
 
@@ -62,6 +62,7 @@ pub struct Function {
     pub inputs: ThinVec<Param>,
     pub output: FnRetTy,
 }
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParam {
@@ -217,8 +218,9 @@ pub struct QualifiedSelf {
     pub ty: Box<Ty>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RefKind {
     ThreadLocal(Mutability),
     Sync(Mutability),
 }
+

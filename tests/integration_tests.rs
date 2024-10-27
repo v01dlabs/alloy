@@ -6,8 +6,21 @@ use alloy::parser::Parser;
 use alloy::type_checker::typecheck;
 use alloy::Lexer;
 
+fn init_tracing() {
+    let format = tracing_subscriber::fmt::format()
+        .pretty();
+
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .event_format(format)
+        .with_test_writer()
+        .with_ansi(true)
+        .try_init();
+}
+
 #[test]
 fn test_parse_complex_program() {
+    init_tracing();
     let source = r#"
         fn processData[T](data: Array[T], predicate: |T| -> bool) -> int {
             let mut sum = 0
@@ -51,6 +64,7 @@ fn test_parse_complex_program() {
 
 #[test]
 fn test_typecheck_complex_program() {
+    init_tracing();
     let code = r#"
             fn fibonacci(n: int) -> int {
                 if (n <= 1) {
@@ -62,9 +76,9 @@ fn test_typecheck_complex_program() {
 
             fn main() -> int {
                 let result: int = fibonacci(10);
-                let numbers: [int] = [1, 2, 3, 4, 5];
-                for (let i = 0; i < 5; i = i + 1) {
-                    result = result + numbers[i];
+                let numbers: Array[int] = [1, 2, 3, 4, 5];
+                for num in numbers {
+                    result = result + num;
                 }
                 return result;
             }

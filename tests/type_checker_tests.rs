@@ -3,7 +3,20 @@ use alloy::error::TypeError;
 use alloy::Lexer;
 use alloy::Parser;
 
+fn init_tracing() {
+    let format = tracing_subscriber::fmt::format()
+        .pretty();
+
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .event_format(format)
+        .with_test_writer()
+        .with_ansi(true)
+        .try_init();
+}
+
 fn type_check_code(code: &str) -> Result<(), TypeError> {
+    init_tracing();
     let tokens = Lexer::tokenize(code).map_err(|e| TypeError {
         message: e.to_string(),
     })?;

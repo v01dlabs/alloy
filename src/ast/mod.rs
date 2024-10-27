@@ -4,7 +4,7 @@ use core::fmt;
 
 use thin_vec::ThinVec;
 
-use crate::lexer::Token;
+use crate::{ast::ty::{GenericParam, Mutability}, lexer::Token};
 use self::ty::{Function, Ident, Pattern, RefKind, Ty, TypeOp};
 
 #[allow(non_snake_case)]
@@ -43,6 +43,7 @@ impl Precedence {
             Token::Assign => Precedence::Assignment,
             Token::Pipeline => Precedence::Pipeline,
             Token::LParen => Precedence::Call,
+            Token::Dot => Precedence::Call,
             _ => Precedence::None,
         }
     }
@@ -54,12 +55,13 @@ pub enum AstNode {
     Program(ThinVec<Box<AstNode>>),
     FunctionDeclaration {
         name: Ident,
+        attrs: ThinVec<FnAttr>,
         function: Function,
         body: ThinVec<Box<AstNode>>,
     },
     VariableDeclaration {
         name: Ident,
-        mutable: bool,
+        attrs: ThinVec<BindAttr>,
         type_annotation: Option<Box<Ty>>,
         initializer: Option<Box<AstNode>>,
     },
@@ -106,8 +108,8 @@ pub enum AstNode {
         closure: Box<AstNode>,
     },
     PipelineOperation {
-        left: Box<AstNode>,
-        right: Box<AstNode>,
+        prev: Box<AstNode>,
+        next: Box<AstNode>,
     },
     Identifier(Ident),
     IntLiteral(i64),
@@ -117,29 +119,101 @@ pub enum AstNode {
     ArrayLiteral(ThinVec<Box<AstNode>>),
     EffectDeclaration {
         name: Ident,
-        generic_params: ThinVec<Box<Ty>>,
+        generic_params: ThinVec<GenericParam>,
+        bounds: Option<TypeOp>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
         members: ThinVec<Box<AstNode>>, 
     },
     StructDeclaration {
         name: Ident,
-        generic_params: ThinVec<Box<Ty>>,
+        generic_params: ThinVec<GenericParam>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
         members: ThinVec<Box<AstNode>>, 
     },
     EnumDeclaration {
         name: Ident,
-        generic_params: ThinVec<Box<Ty>>,
+        generic_params: ThinVec<GenericParam>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
         variants: ThinVec<Box<AstNode>>, 
     },
     TraitDeclaration {
         name: Ident,
-        generic_params: ThinVec<Box<Ty>>,
+        generic_params: ThinVec<GenericParam>,
+        bounds: Option<TypeOp>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
         members: ThinVec<Box<AstNode>>, 
     },
     UnionDeclaration {
         name: Ident,
-        generic_params: ThinVec<Box<Ty>>,
+        generic_params: ThinVec<GenericParam>,
+        bounds: Option<TypeOp>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
+    },
+    ImplDeclaration {
+        name: Ident,
+        generic_params: ThinVec<GenericParam>,
+        kind: ImplKind,
+        target: Ident,
+        target_generic_params: ThinVec<GenericParam>,
+        bounds: Option<TypeOp>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
         members: ThinVec<Box<AstNode>>, 
     },
+    WithClause(ThinVec<Box<WithClauseItem>>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WhereClauseItem {
+    Generic(GenericParam),
+    Algebraic(TypeOp),
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WithClauseItem {
+    Generic(GenericParam),
+    Algebraic(TypeOp),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FnAttr {
+    pub is_async: bool,
+    pub is_shared: bool,
+    pub effects: ThinVec<Box<WithClauseItem>>,
+}
+
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BindAttr {
+    pub mutability: Mutability,
+    pub ref_kind: Option<RefKind>,
+}
+
+impl BindAttr {
+    pub fn new(is_mut: bool, ref_kind: Option<RefKind>) -> Self {
+        BindAttr {
+            mutability: if is_mut {
+                Mutability::Mut
+            } else {
+                Mutability::Not
+            },
+            ref_kind,
+        }
+    }
+
+    pub fn from_list(attrs: &[BindAttr]) -> Self {
+        let mut mutability = Mutability::Not;
+        let mut ref_kind = None;
+        for attr in attrs {
+            mutability = mutability.max(attr.mutability);
+            ref_kind = ref_kind.or(attr.ref_kind);
+        }
+        BindAttr {
+            mutability,
+            ref_kind,
+        }
+    }
 }
 
 /// Represents binary operators in Alloy.
@@ -192,6 +266,27 @@ pub enum UnaryOperator {
     Negate,
     Not,
     Increment,
+}
+
+impl UnaryOperator {
+    pub fn from_token(token: &Token) -> Option<UnaryOperator> {
+        match token {
+            Token::Not => Some(UnaryOperator::Not),
+            Token::Minus => Some(UnaryOperator::Negate),
+            Token::Increment => Some(UnaryOperator::Increment),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ImplKind {
+    Struct,
+    Enum,
+    Trait,
+    Union,
+    Handler,
+    Infer,
 }
 
 #[derive(Debug, Clone, PartialEq)]
