@@ -5,6 +5,7 @@
 //! the program is well-typed according to Alloy's type system.
 
 use thin_vec::{thin_vec, ThinVec};
+use tracing::instrument;
 
 use crate::{
     ast::{
@@ -22,6 +23,7 @@ use std::collections::HashMap;
 type TypeEnv = HashMap<String, Box<TypeBinding>>;
 
 /// The main type checker struct.
+#[derive(Debug)]
 pub struct TypeChecker {
     env: TypeEnv,
     name_index: usize,
@@ -78,6 +80,7 @@ impl TypeChecker {
         }
     }
 
+    #[instrument]
     pub fn resolve_function(&self, name: &Ident) -> Result<Box<Type>, TypeError> {
         match self.env.get(name) {
             Some(ty) => match &ty.binding.ty {
@@ -99,6 +102,7 @@ impl TypeChecker {
         }
     }
 
+    #[instrument]
     pub fn infer_type(&mut self, ast: &AstNode) -> Result<Type, TypeError> {
         match ast {
             AstNode::Program(program) => {
@@ -461,6 +465,7 @@ impl TypeChecker {
         }
     }
 
+    #[instrument]
     fn typecheck_function_call(
         &mut self,
         function: &Function,
@@ -553,6 +558,7 @@ impl TypeChecker {
         Ok(*return_type)
     }
     /// Checks the types for a binary operation.
+    #[instrument]
     fn typecheck_binary_op(
         &self,
         op: &BinaryOperator,
@@ -622,6 +628,7 @@ impl TypeChecker {
     }
 
     /// Checks the types for a unary operation.
+    #[instrument]
     fn typecheck_unary_op(&self, op: &UnaryOperator, operand: &Type) -> Result<Type, TypeError> {
         match op {
             UnaryOperator::Negate => {

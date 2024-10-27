@@ -3,7 +3,9 @@ use alloy::error::TypeError;
 use alloy::Lexer;
 use alloy::Parser;
 
+
 fn type_check_code(code: &str) -> Result<(), TypeError> {
+    let _ = tracing_subscriber::fmt::try_init();
     let tokens = Lexer::tokenize(code).map_err(|e| TypeError {
         message: e.to_string(),
     })?;

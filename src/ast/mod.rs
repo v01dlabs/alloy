@@ -43,6 +43,7 @@ impl Precedence {
             Token::Assign => Precedence::Assignment,
             Token::Pipeline => Precedence::Pipeline,
             Token::LParen => Precedence::Call,
+            Token::Dot => Precedence::Call,
             _ => Precedence::None,
         }
     }

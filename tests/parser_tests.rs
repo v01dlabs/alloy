@@ -1,15 +1,19 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{ty::{FnRetTy, Function, GenericParam, Ty, TyKind}, AstNode, BinaryOperator, Precedence, UnaryOperator},
+    ast::{ty::{FnRetTy, Function, GenericParam, GenericParamKind, Ty, TyKind}, AstNode, BinaryOperator, FnAttr, Precedence, UnaryOperator, WithClauseItem, P},
     error::ParserError,
     lexer::{Lexer, Token},
     parser::{parse, Parser},
 };
 use thin_vec::thin_vec;
+use tracing_subscriber;
+
+
 
 // Helper function to create a parser from a vector of tokens
 fn create_parser(tokens: Vec<Token>) -> Parser {
+    let _ = tracing_subscriber::fmt::try_init();
     Parser::new(tokens)
 }
 
@@ -137,7 +141,7 @@ fn test_parse_multiple_declarations() {
         Token::Newline,
         Token::Eof,
     ];
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse();
     assert!(result.is_ok());
     if let Ok(box AstNode::Program(declarations)) = result {
@@ -219,7 +223,7 @@ fn test_parse_while_loop() {
 fn test_parse_for_statement() {
     let source = "for name in names { print(name) }";
     let tokens = Lexer::tokenize(source).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse_statement();
     assert!(
         result.is_ok(),
@@ -270,7 +274,7 @@ fn test_parse_trailing_closure() {
     let source = "someFunction() { in return 42 }";
     let tokens = Lexer::tokenize(source).unwrap();
     println!("{:?}", tokens);
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse_expression(Precedence::None);
     assert!(
         result.is_ok(),
@@ -369,7 +373,7 @@ fn test_basic_effect() {
     }
     "#;
     let tokens = Lexer::tokenize(input).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse();
     assert!(
         result.is_ok(),
@@ -406,7 +410,7 @@ fn test_struct_decl() {
     }
     "#;
     let tokens = Lexer::tokenize(input).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse();
     assert!(
         result.is_ok(),
@@ -441,7 +445,7 @@ fn test_struct_decl() {
 fn test_parse_generic_type_annotation() {
     let source = "let x: Array[int] = [1, 2, 3]";
     let tokens = Lexer::tokenize(source).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse_declaration();
     assert!(
         result.is_ok(),
@@ -498,7 +502,7 @@ fn test_parse_nested_generic_type_annotation() {
 fn test_parse_function_with_generic_return_type() {
     let source = "fn getValues() -> Array[int] { return [1, 2, 3] }";
     let tokens = Lexer::tokenize(source).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse_declaration();
     assert!(
         result.is_ok(),
@@ -542,7 +546,7 @@ fn test_parse_error_handling() {
         Token::Newline,
         Token::Eof,
     ];
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse();
     assert!(result.is_err());
     match result {
@@ -555,7 +559,7 @@ fn test_parse_error_handling() {
 }
 
 #[test]
-fn test_parse_pipeline_basic() {
+fn test_parse_multi_pipeline() {
     let input = r#"
         let processed = data
             |> map { x in x * 2 }
@@ -563,7 +567,7 @@ fn test_parse_pipeline_basic() {
             |> fold(0) { acc, x in acc + x }
     "#;
     let tokens = Lexer::tokenize(input).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = create_parser(tokens);
     let result = parser.parse();
     assert!(
         result.is_ok(),
@@ -581,6 +585,96 @@ fn test_parse_pipeline_basic() {
             panic!("Expected PipelineOperation, got {:?}", declaration);
         }
     } else {
+        panic!("Expected Program, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_simple_impl_block() {
+    let input = r#"
+        impl Display for Point {
+            fn display(self) -> String {
+                "Point({self.x}, {self.y})"
+            }
+        }
+    "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = create_parser(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse impl block: {}",
+        result.unwrap_err()
+    );
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap().clone();
+        assert!(matches!(declaration,
+            box AstNode::ImplDeclaration { .. } 
+        ));
+        if let box AstNode::ImplDeclaration { name, generic_params, 
+            kind, target, target_generic_params, 
+            where_clause, bounds, members 
+        } = declaration
+        {
+            assert_eq!(name, "Display");
+            assert_eq!(target, "Point");
+            assert!(generic_params.is_empty());
+            assert!(target_generic_params.is_empty());
+            assert!(where_clause.is_empty());
+            assert!(bounds.is_none());
+            assert_eq!(members.len(), 1);
+            assert!(matches!(members[0].clone(), 
+                box AstNode::FunctionDeclaration { name, 
+                    function: Function { inputs, output, .. }, .. } if name == "display" && inputs.len() == 1 
+                && matches!(
+                    output.clone(), 
+                    FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "String"
+                )));
+        }
+    } else {        
+        panic!("Expected Program, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_with_clause_simple() {
+    let input = r#"
+        fn generate_id() -> i32 with Random {
+            next_int(0, 1000)
+        }
+        "#;
+    let tokens = Lexer::tokenize(input).unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse();
+    assert!(
+        result.is_ok(),
+        "Failed to parse with clause: {}",
+        result.unwrap_err()
+    );
+    
+    if let Ok(box AstNode::Program(declarations)) = result {
+        assert_eq!(declarations.len(), 1);
+        let declaration = declarations.first().unwrap().clone();
+        assert!(matches!(declaration.clone(),
+            box AstNode::FunctionDeclaration { name, attrs: _, function: Function { inputs, .. }, .. } 
+            if name == "generate_id" && inputs.len() == 0
+        ));
+        if let box AstNode::FunctionDeclaration {
+             name: _, attrs, function: Function { inputs: _, output, .. }, .. 
+        } = declaration.clone() {
+            assert!(matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "i32"));
+            assert_eq!(attrs.len(), 1);
+            assert!(matches!(attrs[0].clone(), 
+                FnAttr { is_async, is_shared, effects } if is_async == false && is_shared == false && effects.len() == 1 
+                && matches!(effects[0].clone(), 
+                    box WithClauseItem::Generic(GenericParam { name, kind: GenericParamKind::Type(None), .. }) if name == "Random"
+                )
+            ));
+        } else {
+            panic!("Expected FunctionDeclaration, got {:?}", declaration);
+        }
+    } else {        
         panic!("Expected Program, got {:?}", result);
     }
 }
