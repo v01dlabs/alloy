@@ -9,9 +9,9 @@ use tracing::{error, instrument};
 
 use crate::{
     ast::{
-        ty::{
-            AttrItem, BindingMode, Const, FnRetTy, Ident, IntTy, Mutability, PatField, Path, Pattern, PatternKind, RefKind, Ty, TyKind, TypeOp
-        }, AstNode, BinaryOperator, BindAttr, UnaryOperator, P
+        self, ty::{
+            AttrItem, Const, FloatKind, FnRetTy, Ident, IntKind, Mutability, PatField, Path, Pattern, PatternKind, RefKind, Ty, TyKind, TypeOp, UintKind
+        }, AstElem, AstElemKind, AstNode, BinaryOperator, BindAttr, Statement, StatementKind, Item, ItemKind, Expr, ExprKind, UnaryOperator, Visibility, P
     },
     error::TypeError,
 };
@@ -102,394 +102,482 @@ impl TypeChecker {
         }
     }
 
-    #[instrument]
-    pub fn infer_type(&mut self, ast: &AstNode) -> Result<Type, TypeError> {
-        match ast {
-            AstNode::Program(program) => {
-                let mut last_type = Type::Infer;
-                for statement in program.iter() {
-                    last_type = self.infer_type(statement)?;
-                }
-                Ok(last_type)
-            }
-            AstNode::FunctionDeclaration {
-                name,
-                attrs,
-                function:
-                    crate::ast::ty::Function {
-                        generic_params,
-                        inputs,
-                        output,
-                    },
-                body,
-            } => {
-                let mut fn_checker = self.copy_env();
-                for generic_param in generic_params.iter() {
-                    match &generic_param.kind {
-                        crate::ast::ty::GenericParamKind::Type(Some(box ty)) => {
-                            let ty = P(Type::from(ty.clone()));
-                            fn_checker.insert_type(&generic_param.name, &ty);
-                        }
-                        crate::ast::ty::GenericParamKind::Type(None) => {
-                            fn_checker.insert_type(&generic_param.name, &Type::Infer);
-                        }
-                        crate::ast::ty::GenericParamKind::Const { box ty, .. } => {
-                            let ty = P(Type::from(ty.clone()));
-                            fn_checker.insert_type(&generic_param.name, &ty);
-                        }
-                    }
-                }
-                let param_types: ThinVec<_> = inputs
-                    .iter()
-                    .map(|param| {
-                        let ty = P(Type::from(*param.ty.clone()));
-                        fn_checker.insert_type(&param.name, &ty);
-                        ty
-                    })
-                    .collect();
-                let mut return_type = Type::from(output.clone());
-                let attrs = FnAttr::from_list(attrs);
-                let fn_type = Type::Function(Function {
-                    generic_params: generic_params.clone().into_iter().map(Into::into).collect(),
-                    inputs: inputs
-                        .iter()
-                        .zip(param_types.iter())
-                        .map(|(t1, t2)| Param {
-                            name: t1.name.clone(),
-                            ty: P(*t2.clone()),
-                        })
-                        .collect(),
-                    // TODO: Placeholder for now  
-                    attrs: attrs.clone(),
-                    output: P(return_type.clone()),
-                });
-                
-                fn_checker.insert_function(name, &fn_type, attrs.clone(), None);
-                for statement in body.iter() {
-                    if let &box AstNode::ReturnStatement(ref expr) = statement {
-                        let statement_type = if let Some(expr) = expr {
-                            fn_checker.infer_type(expr).inspect_err(|e|{error!(%e);})?
-                        } else {
-                            Type::unit()
-                        };
-                        if statement_type.infer_or_type(&return_type)
-                            != return_type.infer_or_type(&statement_type)
-                        {
-                            return Err(TypeError {
-                                    message: format!("return statement has type: {:?} but function specifies type: {:?}",
-                                        statement_type, return_type)
-                                });
-                        }
-                        return_type = statement_type.infer_or_type(&return_type).clone();
-                        break;
-                    }
-                    let statement_type = fn_checker.infer_type(statement)
-                        .inspect_err(|e|{error!(%e);})?;
-                    fn_checker.add_anon_type(&statement_type);
-                }
-                let fn_type = Type::Function(Function {
-                    generic_params: generic_params.clone().into_iter().map(Into::into).collect(),
-                    inputs: inputs
-                        .iter()
-                        .zip(param_types.iter())
-                        .map(|(t1, t2)| Param {
-                            name: t1.name.clone(),
-                            ty: P(*t2.clone()),
-                        })
-                        .collect(),
-                    // TODO: Placeholder for now  
-                    attrs: attrs.clone(),
-                    output: P(return_type),
-                });
-                self.insert_function(&name, &fn_type, attrs, None);
-                Ok(fn_type)
-            }
-            AstNode::VariableDeclaration {
-                name,
-                attrs,
-                type_annotation,
-                initializer,
-            } => {
-                let bind_attr = BindAttr::from_list(attrs);
-                let var_type = annotation_to_type(type_annotation);
-                if let Some(initializer) = initializer {
-                    if var_type == Type::Infer {
-                        let inferred_type = self.infer_type(initializer)
-                            .inspect_err(|e|{error!(%e);})?;
-                        self.insert_variable(&name, &inferred_type, bind_attr);
-                        Ok(inferred_type)
-                    } else {
-                        let inferred_type = self.infer_type(initializer)
-                            .inspect_err(|e|{error!(%e);})?;
-                        if inferred_type != Type::Infer && inferred_type != var_type {
-                            Err(TypeError {
-                                message: format!(
-                                    "Type mismatch: expected {:?}, got {:?}",
-                                    var_type, inferred_type
-                                ),
-                            })
-                        } else if inferred_type == var_type {
-                            self.insert_variable(&name, &inferred_type, bind_attr);
-                            Ok(var_type)
-                        } else {
-                            // currently an error, but we can likely recover by inferring the type from other usages
-                            Err(TypeError {
-                                message: format!(
-                                    "Couldn't infer type for variable {} from initializer {:?}",
-                                    name, initializer
-                                ),
-                            })
-                        }
-                    }
-                } else {
-                    self.insert_variable(&name, &var_type, bind_attr);
-                    Ok(var_type)
-                }
-            }
-            AstNode::IfStatement {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let cond_type = self.infer_type(condition).inspect_err(|e|{error!(%e);})?;
-                if cond_type != Type::Bool {
-                    Err(TypeError {
-                        message: format!(
-                            "conditional expression `{:?}` should resolve to a bool",
-                            cond_type
-                        ),
-                    })
-                } else {
-                    let then_type = self.infer_type(then_branch).inspect_err(|e|{error!(%e);})?;
-                    if let Some(else_branch) = else_branch {
-                        let else_type = self.infer_type(else_branch).inspect_err(|e|{error!(%e);})?;
-                        if then_type != else_type {
-                            Err(TypeError {
-                                message: format!("then and else branches of if statement should have the same type,
-                                    but they have different types: {:?} and {:?}", then_type, else_type) })
-                        } else {
-                            Ok(then_type)
-                        }
-                    } else {
-                        Ok(then_type)
-                    }
-                }
-            }
-            AstNode::WhileLoop { condition, body } => {
-                let cond_type = self.infer_type(condition).inspect_err(|e|{error!(%e);})?;
-                if cond_type != Type::Bool {
-                    Err(TypeError {
-                        message: format!(
-                            "conditional expression `{:?}` should resolve to a bool",
-                            cond_type
-                        ),
-                    })
-                } else {
-                    self.infer_type(body)
-                }
-            }
-            AstNode::ForInLoop {
-                item,
-                iterable,
-                body,
-            } => {
-                let iter_type = self.infer_type(iterable).inspect_err(|e|{error!(%e);})?;
-                if let Type::Array(ty) = iter_type {
-                    let mut loop_checker = self.copy_env();
-                    loop_checker.insert_variable(&item, &ty, 
-                        BindAttr::new(false, Some(RefKind::Sync(Mutability::Not)))
-                    );
-                    loop_checker.infer_type(body)
-                } else {
-                    // For now until we have other things to iterate over
-                    Err(TypeError {
-                        message: format!("iterable `{:?}` should resolve to an array", iter_type),
-                    })
-                }
-            }
-            AstNode::GuardStatement { condition, body } => {
-                let cond_type = self.infer_type(condition).inspect_err(|e|{error!(%e);})?;
-                if cond_type != Type::Bool {
-                    Err(TypeError {
-                        message: format!(
-                            "conditional expression `{:?}` should resolve to a bool",
-                            cond_type
-                        ),
-                    })
-                } else {
-                    let body_type = self.infer_type(body).inspect_err(|e|{error!(%e);})?;
-                    Ok(body_type)
-                }
-            }
-            AstNode::ReturnStatement(ast_node) => {
-                if let Some(expr) = ast_node {
-                    self.infer_type(expr).inspect_err(|e|{error!(%e);})
-                } else {
-                    Ok(Type::unit())
-                }
-            }
-            AstNode::Block(block) => {
-                let mut last_type = Type::Infer;
-                for statement in block.iter() {
-                    last_type = self.infer_type(statement)?;
-                }
-                Ok(last_type)
-            }
-            AstNode::BinaryOperation {
-                left,
-                operator,
-                right,
-            } => {
-                let left_type = self.infer_type(left).inspect_err(|e|{error!(%e);})?;
-                let right_type = self.infer_type(right).inspect_err(|e|{error!(%e);})?;
-                self.typecheck_binary_op(operator, &left_type, &right_type)
-            }
-            AstNode::UnaryOperation { operator, operand } => {
-                let operand_type = self.infer_type(operand).inspect_err(|e|{error!(%e);})?;
-                self.typecheck_unary_op(operator, &operand_type)
-            }
-            AstNode::FunctionCall { callee, arguments } => {
-                let callee_type = self.infer_type(callee).inspect_err(|e|{error!(%e);})?;
-                if let Type::Function(function) = callee_type {
-                    if arguments.len() != function.inputs.len() {
-                        return Err(TypeError {
-                            message: format!(
-                                "Expected {} arguments, got {}",
-                                function.inputs.len(),
-                                arguments.len()
-                            ),
-                        });
-                    }
-                    let return_type = function.output.clone();
-                    for (argument, param_type) in arguments.iter().zip(function.inputs.iter()) {
-                        let arg_type = self.infer_type(argument).inspect_err(|e|{error!(%e);})?;
-                        if arg_type != *param_type.ty {
-                            return Err(TypeError {
-                                message: format!(
-                                    "Argument type mismatch: expected {:?}, got {:?}",
-                                    param_type, arg_type
-                                ),
-                            });
-                        }
-                    }
-                    Ok(*return_type)
-                } else {
-                    Err(TypeError {
-                        message: format!("Expected function, got {:?}", callee_type),
-                    })
-                }
-            }
-            AstNode::GenericFunctionCall {
-                name,
-                generic_args,
-                arguments,
-            } => {
-                let callee_type = self.resolve_function(name)?;
-                match *callee_type {
-                    Type::Function(function) => {
-                        self.typecheck_function_call(&function, arguments, generic_args)
-                            .inspect_err(|e|{error!(%e);})
-                    }
-                    e => Err(TypeError {
-                        message: format!("Expected function, got {:?}, error: {:?}", name, e),
-                    }),
-                }
-            }
-            AstNode::TrailingClosure { callee, closure } => {
-                let mut full_args: ThinVec<Box<AstNode>> = thin_vec![];
-                let mut generic_arguments: ThinVec<Box<Ty>> = thin_vec![];
-                let callee_type = match *callee {
-                    box AstNode::GenericFunctionCall {
-                        ref name,
-                        ref generic_args,
-                        ref arguments,
-                    } => {
-                        full_args.append(&mut arguments.clone());
-                        // Currently assuming the last argument is the closure, as in Kotlin
-                        full_args.push(closure.clone());
-                        generic_arguments.append(&mut generic_args.clone());
-                        self.resolve_function(name).inspect_err(|e|{error!(%e);})?
-                    }
-                    box AstNode::FunctionCall {
-                        ref callee,
-                        ref arguments,
-                    } => {
-                        full_args.append(&mut arguments.clone());
-                        // Currently assuming the last argument is the closure, as in Kotlin
-                        full_args.push(closure.clone());
-                        P(self.infer_type(callee).inspect_err(|e|{error!(%e);})?)
-                    }
-                    box AstNode::Identifier(ref name) => {
-                        P(self.resolve_ident(name)?.ty)
-                    }
-                    box ref e => {
-                        return Err(TypeError {
-                            message: format!(
-                                "Expected function call, got {:?}, error: {:?}",
-                                callee, e
-                            ),
-                        })
-                    }
-                };
-                match *callee_type {
-                    Type::Function(function) => {
-                        self.typecheck_function_call(&function, &full_args, &generic_arguments)
-                    }
-                    e => Err(TypeError {
-                        message: format!("Expected function, got {:?}, error: {:?}", callee, e),
-                    }),
-                }
-            }
-            AstNode::PipelineOperation { prev, next } => {
-                //TODO: Placeholder implementation
-                let prev_type = self.infer_type(prev)?;
-                let next_type = self.infer_type(next)?;
-                //self.typecheck_binary_op(&BinaryOperator::Pipeline, &left_type, &right_type)
-                Ok(prev_type)
-            }
-            AstNode::Identifier(ident) => {
-                Ok(self.resolve_ident(ident).inspect_err(|e|{error!(%e);})?.ty)
-            }
-            AstNode::IntLiteral(_) => Ok(Type::Int(IntTy::Int)),
-            AstNode::FloatLiteral(_) => Ok(Type::Float),
-            AstNode::StringLiteral(_) => Ok(Type::String),
-            AstNode::BoolLiteral(_) => Ok(Type::Bool),
-            AstNode::ArrayLiteral(elements) => self.typecheck_array_literal(elements),
-            AstNode::EffectDeclaration { 
-                name, generic_params,
-                where_clause, bounds, members } => todo!(),
-            AstNode::StructDeclaration { 
-                name, generic_params, 
-                where_clause, members 
+    pub fn infer_item_type(&mut self, item: &Item) -> Result<Type, TypeError> {
+        match &item.kind {
+            ItemKind::Fn {
+                 name, attrs, function, body 
+                } => todo!(),
+            ItemKind::Bind { 
+                name, attrs, type_annotation, initializer 
             } => todo!(),
-            AstNode::EnumDeclaration { 
-                name, generic_params, 
-                where_clause, variants 
+            ItemKind::Effect {
+                 name, generic_params, bounds, where_clause, members 
             } => todo!(),
-            AstNode::TraitDeclaration { 
-                name, generic_params, 
-                bounds, where_clause, members 
+            ItemKind::Struct { 
+                name, generic_params, where_clause, members 
             } => todo!(),
-            AstNode::UnionDeclaration { 
-                name, generic_params, 
-                bounds, where_clause 
+            ItemKind::Enum { 
+                name, generic_params, where_clause, variants 
             } => todo!(),
-            AstNode::ImplDeclaration { 
-                name, generic_params, 
-                kind, 
-                target, target_generic_params, 
-                where_clause,
-                bounds, members 
+            ItemKind::Trait { 
+                name, generic_params, bounds, where_clause, members 
             } => todo!(),
-            AstNode::WithClause(items) => todo!(),
+            ItemKind::Union { name, generic_params, bounds, where_clause } => todo!(),
+            ItemKind::Impl { name, generic_params, kind, target, target_generic_params, bounds, where_clause, members } => todo!(),
         }
+    }
+
+    pub fn infer_expr_type(&mut self, expr: &Expr) -> Result<Type, TypeError> {
+        match &expr.kind {
+            ExprKind::Array(thin_vec) => todo!(),
+            ExprKind::ConstBlock(_) => todo!(),
+            ExprKind::Call { callee, generic_args, args } => todo!(),
+            ExprKind::MethodCall { path_seg, receiver, args } => todo!(),
+            ExprKind::Binary { binop, lhs, rhs } => todo!(),
+            ExprKind::Unary(unary_operator, expr) => todo!(),
+            ExprKind::Cast(expr, ty) => todo!(),
+            ExprKind::Literal(literal) => todo!(),
+            ExprKind::Let { pat, ty, init } => todo!(),
+            ExprKind::Type { expr, ty } => todo!(),
+            ExprKind::If { cond, then, else_ } => todo!(),
+            ExprKind::While { cond, body, label } => todo!(),
+            ExprKind::For { pat, iter, body, label } => todo!(),
+            ExprKind::Loop { body, label } => todo!(),
+            ExprKind::Match { expr, arms } => todo!(),
+            ExprKind::Block(block, _) => todo!(),
+            ExprKind::Await(expr) => todo!(),
+            ExprKind::Assign { lhs, rhs } => todo!(),
+            ExprKind::AssignOp { lhs, op, rhs } => todo!(),
+            ExprKind::Closure { callee, params, closure } => todo!(),
+            ExprKind::TrailingClosure { callee, args, closure } => todo!(),
+            ExprKind::Struct { qual_self, path, fields } => todo!(),
+            ExprKind::PipelineOperation { prev, next } => todo!(),
+            ExprKind::Field(expr, _) => todo!(),
+            ExprKind::Index { expr, index } => todo!(),
+            ExprKind::Range { start, end, limits } => todo!(),
+            ExprKind::Underscore => todo!(),
+            ExprKind::Paren(expr) => todo!(),
+            ExprKind::Path(qualified_self, path) => todo!(),
+            ExprKind::Break { label, expr } => todo!(),
+            ExprKind::Continue { label } => todo!(),
+            ExprKind::Return(expr) => todo!(),
+            ExprKind::Try(expr) => todo!(),
+            ExprKind::Unwrap(expr) => todo!(),
+            ExprKind::Run(expr) => todo!(),
+        }
+    }
+
+    pub fn typecheck_statement(&mut self, statement: &Statement) -> Result<Type, TypeError> {
+        match &statement.kind {
+            StatementKind::Let(local) => todo!(),
+            StatementKind::Item(item) => todo!(),
+            StatementKind::Expr(expr) => todo!(),
+            StatementKind::Semicolon(expr) => todo!(),
+            StatementKind::Empty => todo!(),
+        }
+    }
+
+    #[instrument]
+    pub fn infer_type(&mut self, ast: &AstElem) -> Result<Type, TypeError> {
+        match &ast.kind {
+            AstElemKind::Program(thin_vec) => {
+                let mut last_type = Type::Infer;
+                for statement in thin_vec.iter() {
+                    last_type = self.infer_type(statement)?;
+                }
+                Ok(last_type)
+            },
+            AstElemKind::Expr(expr) => self.infer_expr_type(expr),
+            AstElemKind::Item(item) => self.infer_item_type(item),
+            AstElemKind::Statement(statement) => self.typecheck_statement(statement),
+        }
+
+        // match ast {
+        //     AstNode::Program(program) => {
+        //         let mut last_type = Type::Infer;
+        //         for statement in program.iter() {
+        //             last_type = self.infer_type(statement)?;
+        //         }
+        //         Ok(last_type)
+        //     }
+        //     AstNode::FunctionDeclaration {
+        //         name,
+        //         attrs,
+        //         function:
+        //             crate::ast::ty::Function {
+        //                 generic_params,
+        //                 inputs,
+        //                 output,
+        //             },
+        //         body,
+        //     } => {
+        //         let mut fn_checker = self.copy_env();
+        //         for generic_param in generic_params.iter() {
+        //             match &generic_param.kind {
+        //                 crate::ast::ty::GenericParamKind::Type(Some(box ty)) => {
+        //                     let ty = P(Type::from(ty.clone()));
+        //                     fn_checker.insert_type(&generic_param.name, &ty);
+        //                 }
+        //                 crate::ast::ty::GenericParamKind::Type(None) => {
+        //                     fn_checker.insert_type(&generic_param.name, &Type::Infer);
+        //                 }
+        //                 crate::ast::ty::GenericParamKind::Const { box ty, .. } => {
+        //                     let ty = P(Type::from(ty.clone()));
+        //                     fn_checker.insert_type(&generic_param.name, &ty);
+        //                 }
+        //             }
+        //         }
+        //         let param_types: ThinVec<_> = inputs
+        //             .iter()
+        //             .map(|param| {
+        //                 let ty = P(Type::from(*param.ty.clone()));
+        //                 fn_checker.insert_type(&param.name, &ty);
+        //                 ty
+        //             })
+        //             .collect();
+        //         let mut return_type = Type::from(output.clone());
+        //         let attrs = FnAttr::from_list(attrs);
+        //         let fn_type = Type::Function(Function {
+        //             generic_params: generic_params.clone().into_iter().map(Into::into).collect(),
+        //             inputs: inputs
+        //                 .iter()
+        //                 .zip(param_types.iter())
+        //                 .map(|(t1, t2)| Param {
+        //                     name: t1.name.clone(),
+        //                     ty: P(*t2.clone()),
+        //                 })
+        //                 .collect(),
+        //             // TODO: Placeholder for now  
+        //             attrs: attrs.clone(),
+        //             output: P(return_type.clone()),
+        //         });
+                
+        //         fn_checker.insert_function(name, &fn_type, attrs.clone(), None);
+        //         for statement in body.iter() {
+        //             if let &box AstNode::ReturnStatement(ref expr) = statement {
+        //                 let statement_type = if let Some(expr) = expr {
+        //                     fn_checker.infer_type(expr).inspect_err(|e|{error!(%e);})?
+        //                 } else {
+        //                     Type::unit()
+        //                 };
+        //                 if statement_type.infer_or_type(&return_type)
+        //                     != return_type.infer_or_type(&statement_type)
+        //                 {
+        //                     return Err(TypeError {
+        //                             message: format!("return statement has type: {:?} but function specifies type: {:?}",
+        //                                 statement_type, return_type)
+        //                         });
+        //                 }
+        //                 return_type = statement_type.infer_or_type(&return_type).clone();
+        //                 break;
+        //             }
+        //             let statement_type = fn_checker.infer_type(statement)
+        //                 .inspect_err(|e|{error!(%e);})?;
+        //             fn_checker.add_anon_type(&statement_type);
+        //         }
+        //         let fn_type = Type::Function(Function {
+        //             generic_params: generic_params.clone().into_iter().map(Into::into).collect(),
+        //             inputs: inputs
+        //                 .iter()
+        //                 .zip(param_types.iter())
+        //                 .map(|(t1, t2)| Param {
+        //                     name: t1.name.clone(),
+        //                     ty: P(*t2.clone()),
+        //                 })
+        //                 .collect(),
+        //             // TODO: Placeholder for now  
+        //             attrs: attrs.clone(),
+        //             output: P(return_type),
+        //         });
+        //         self.insert_function(&name, &fn_type, attrs, None);
+        //         Ok(fn_type)
+        //     }
+        //     AstNode::VariableDeclaration {
+        //         name,
+        //         attrs,
+        //         type_annotation,
+        //         initializer,
+        //     } => {
+        //         let bind_attr = BindAttr::from_list(attrs);
+        //         let var_type = annotation_to_type(type_annotation);
+        //         if let Some(initializer) = initializer {
+        //             if var_type == Type::Infer {
+        //                 let inferred_type = self.infer_type(initializer)
+        //                     .inspect_err(|e|{error!(%e);})?;
+        //                 self.insert_variable(&name, &inferred_type, bind_attr);
+        //                 Ok(inferred_type)
+        //             } else {
+        //                 let inferred_type = self.infer_type(initializer)
+        //                     .inspect_err(|e|{error!(%e);})?;
+        //                 if inferred_type != Type::Infer && inferred_type != var_type {
+        //                     Err(TypeError {
+        //                         message: format!(
+        //                             "Type mismatch: expected {:?}, got {:?}",
+        //                             var_type, inferred_type
+        //                         ),
+        //                     })
+        //                 } else if inferred_type == var_type {
+        //                     self.insert_variable(&name, &inferred_type, bind_attr);
+        //                     Ok(var_type)
+        //                 } else {
+        //                     // currently an error, but we can likely recover by inferring the type from other usages
+        //                     Err(TypeError {
+        //                         message: format!(
+        //                             "Couldn't infer type for variable {} from initializer {:?}",
+        //                             name, initializer
+        //                         ),
+        //                     })
+        //                 }
+        //             }
+        //         } else {
+        //             self.insert_variable(&name, &var_type, bind_attr);
+        //             Ok(var_type)
+        //         }
+        //     }
+        //     AstNode::IfStatement {
+        //         condition,
+        //         then_branch,
+        //         else_branch,
+        //     } => {
+        //         let cond_type = self.infer_type(condition).inspect_err(|e|{error!(%e);})?;
+        //         if cond_type != Type::Bool {
+        //             Err(TypeError {
+        //                 message: format!(
+        //                     "conditional expression `{:?}` should resolve to a bool",
+        //                     cond_type
+        //                 ),
+        //             })
+        //         } else {
+        //             let then_type = self.infer_type(then_branch).inspect_err(|e|{error!(%e);})?;
+        //             if let Some(else_branch) = else_branch {
+        //                 let else_type = self.infer_type(else_branch).inspect_err(|e|{error!(%e);})?;
+        //                 if then_type != else_type {
+        //                     Err(TypeError {
+        //                         message: format!("then and else branches of if statement should have the same type,
+        //                             but they have different types: {:?} and {:?}", then_type, else_type) })
+        //                 } else {
+        //                     Ok(then_type)
+        //                 }
+        //             } else {
+        //                 Ok(then_type)
+        //             }
+        //         }
+        //     }
+        //     AstNode::WhileLoop { condition, body } => {
+        //         let cond_type = self.infer_type(condition).inspect_err(|e|{error!(%e);})?;
+        //         if cond_type != Type::Bool {
+        //             Err(TypeError {
+        //                 message: format!(
+        //                     "conditional expression `{:?}` should resolve to a bool",
+        //                     cond_type
+        //                 ),
+        //             })
+        //         } else {
+        //             self.infer_type(body)
+        //         }
+        //     }
+        //     AstNode::ForInLoop {
+        //         item,
+        //         iterable,
+        //         body,
+        //     } => {
+        //         let iter_type = self.infer_type(iterable).inspect_err(|e|{error!(%e);})?;
+        //         if let Type::Array(ty) = iter_type {
+        //             let mut loop_checker = self.copy_env();
+        //             loop_checker.insert_variable(&item, &ty, 
+        //                 BindAttr::new(false, Some(RefKind::Sync(Mutability::Not)))
+        //             );
+        //             loop_checker.infer_type(body)
+        //         } else {
+        //             // For now until we have other things to iterate over
+        //             Err(TypeError {
+        //                 message: format!("iterable `{:?}` should resolve to an array", iter_type),
+        //             })
+        //         }
+        //     }
+        //     AstNode::GuardStatement { condition, body } => {
+        //         let cond_type = self.infer_type(condition).inspect_err(|e|{error!(%e);})?;
+        //         if cond_type != Type::Bool {
+        //             Err(TypeError {
+        //                 message: format!(
+        //                     "conditional expression `{:?}` should resolve to a bool",
+        //                     cond_type
+        //                 ),
+        //             })
+        //         } else {
+        //             let body_type = self.infer_type(body).inspect_err(|e|{error!(%e);})?;
+        //             Ok(body_type)
+        //         }
+        //     }
+        //     AstNode::ReturnStatement(ast_node) => {
+        //         if let Some(expr) = ast_node {
+        //             self.infer_type(expr).inspect_err(|e|{error!(%e);})
+        //         } else {
+        //             Ok(Type::unit())
+        //         }
+        //     }
+        //     AstNode::Block(block) => {
+        //         let mut last_type = Type::Infer;
+        //         for statement in block.iter() {
+        //             last_type = self.infer_type(statement)?;
+        //         }
+        //         Ok(last_type)
+        //     }
+        //     AstNode::BinaryOperation {
+        //         left,
+        //         operator,
+        //         right,
+        //     } => {
+        //         let left_type = self.infer_type(left).inspect_err(|e|{error!(%e);})?;
+        //         let right_type = self.infer_type(right).inspect_err(|e|{error!(%e);})?;
+        //         self.typecheck_binary_op(operator, &left_type, &right_type)
+        //     }
+        //     AstNode::UnaryOperation { operator, operand } => {
+        //         let operand_type = self.infer_type(operand).inspect_err(|e|{error!(%e);})?;
+        //         self.typecheck_unary_op(operator, &operand_type)
+        //     }
+        //     AstNode::FunctionCall { callee, arguments } => {
+        //         let callee_type = self.infer_type(callee).inspect_err(|e|{error!(%e);})?;
+        //         if let Type::Function(function) = callee_type {
+        //             if arguments.len() != function.inputs.len() {
+        //                 return Err(TypeError {
+        //                     message: format!(
+        //                         "Expected {} arguments, got {}",
+        //                         function.inputs.len(),
+        //                         arguments.len()
+        //                     ),
+        //                 });
+        //             }
+        //             let return_type = function.output.clone();
+        //             for (argument, param_type) in arguments.iter().zip(function.inputs.iter()) {
+        //                 let arg_type = self.infer_type(argument).inspect_err(|e|{error!(%e);})?;
+        //                 if arg_type != *param_type.ty {
+        //                     return Err(TypeError {
+        //                         message: format!(
+        //                             "Argument type mismatch: expected {:?}, got {:?}",
+        //                             param_type, arg_type
+        //                         ),
+        //                     });
+        //                 }
+        //             }
+        //             Ok(*return_type)
+        //         } else {
+        //             Err(TypeError {
+        //                 message: format!("Expected function, got {:?}", callee_type),
+        //             })
+        //         }
+        //     }
+        //     AstNode::GenericFunctionCall {
+        //         name,
+        //         generic_args,
+        //         arguments,
+        //     } => {
+        //         let callee_type = self.resolve_function(name)?;
+        //         match *callee_type {
+        //             Type::Function(function) => {
+        //                 self.typecheck_function_call(&function, arguments, generic_args)
+        //                     .inspect_err(|e|{error!(%e);})
+        //             }
+        //             e => Err(TypeError {
+        //                 message: format!("Expected function, got {:?}, error: {:?}", name, e),
+        //             }),
+        //         }
+        //     }
+        //     AstNode::TrailingClosure { callee, closure } => {
+        //         let mut full_args: ThinVec<Box<AstNode>> = thin_vec![];
+        //         let mut generic_arguments: ThinVec<Box<Ty>> = thin_vec![];
+        //         let callee_type = match *callee {
+        //             box AstNode::GenericFunctionCall {
+        //                 ref name,
+        //                 ref generic_args,
+        //                 ref arguments,
+        //             } => {
+        //                 full_args.append(&mut arguments.clone());
+        //                 // Currently assuming the last argument is the closure, as in Kotlin
+        //                 full_args.push(closure.clone());
+        //                 generic_arguments.append(&mut generic_args.clone());
+        //                 self.resolve_function(name).inspect_err(|e|{error!(%e);})?
+        //             }
+        //             box AstNode::FunctionCall {
+        //                 ref callee,
+        //                 ref arguments,
+        //             } => {
+        //                 full_args.append(&mut arguments.clone());
+        //                 // Currently assuming the last argument is the closure, as in Kotlin
+        //                 full_args.push(closure.clone());
+        //                 P(self.infer_type(callee).inspect_err(|e|{error!(%e);})?)
+        //             }
+        //             box AstNode::Identifier(ref name) => {
+        //                 P(self.resolve_ident(name)?.ty)
+        //             }
+        //             box ref e => {
+        //                 return Err(TypeError {
+        //                     message: format!(
+        //                         "Expected function call, got {:?}, error: {:?}",
+        //                         callee, e
+        //                     ),
+        //                 })
+        //             }
+        //         };
+        //         match *callee_type {
+        //             Type::Function(function) => {
+        //                 self.typecheck_function_call(&function, &full_args, &generic_arguments)
+        //             }
+        //             e => Err(TypeError {
+        //                 message: format!("Expected function, got {:?}, error: {:?}", callee, e),
+        //             }),
+        //         }
+        //     }
+        //     AstNode::PipelineOperation { prev, next } => {
+        //         //TODO: Placeholder implementation
+        //         let prev_type = self.infer_type(prev)?;
+        //         let next_type = self.infer_type(next)?;
+        //         //self.typecheck_binary_op(&BinaryOperator::Pipeline, &left_type, &right_type)
+        //         Ok(prev_type)
+        //     }
+        //     AstNode::Identifier(ident) => {
+        //         Ok(self.resolve_ident(ident).inspect_err(|e|{error!(%e);})?.ty)
+        //     }
+        //     AstNode::IntLiteral(_) => Ok(Type::Int(IntKind::Int)),
+        //     AstNode::FloatLiteral(_) => Ok(Type::Float(FloatKind::Float)),
+        //     AstNode::StringLiteral(_) => Ok(Type::String),
+        //     AstNode::BoolLiteral(_) => Ok(Type::Bool),
+        //     AstNode::ArrayLiteral(elements) => self.typecheck_array_literal(elements),
+        //     AstNode::EffectDeclaration { 
+        //         name, generic_params,
+        //         where_clause, bounds, members } => todo!(),
+        //     AstNode::StructDeclaration { 
+        //         name, generic_params, 
+        //         where_clause, members 
+        //     } => todo!(),
+        //     AstNode::EnumDeclaration { 
+        //         name, generic_params, 
+        //         where_clause, variants 
+        //     } => todo!(),
+        //     AstNode::TraitDeclaration { 
+        //         name, generic_params, 
+        //         bounds, where_clause, members 
+        //     } => todo!(),
+        //     AstNode::UnionDeclaration { 
+        //         name, generic_params, 
+        //         bounds, where_clause 
+        //     } => todo!(),
+        //     AstNode::ImplDeclaration { 
+        //         name, generic_params, 
+        //         kind, 
+        //         target, target_generic_params, 
+        //         where_clause,
+        //         bounds, members 
+        //     } => todo!(),
+        //     AstNode::WithClause(items) => todo!(),
+        // }
     }
 
     #[instrument]
     fn typecheck_function_call(
         &mut self,
         function: &Function,
-        arguments: &ThinVec<Box<AstNode>>,
+        arguments: &ThinVec<Box<AstElem>>,
         generic_args: &ThinVec<Box<Ty>>,
     ) -> Result<Type, TypeError> {
         if arguments.len() != function.inputs.len() {
@@ -591,12 +679,12 @@ impl TypeChecker {
             | BinaryOperator::Multiply
             | BinaryOperator::Divide
             | BinaryOperator::Modulo => {
-                if right == &Type::Infer && (matches!(left, &Type::Int(_)) || left == &Type::Float)
+                if right == &Type::Infer && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
                 {
                     Ok(right.clone())
                 } else if left == &Type::Infer
-                    && (matches!(right, &Type::Int(_)) || right == &Type::Float)
-                    || left == right && (matches!(left, &Type::Int(_)) || left == &Type::Float)
+                    && (matches!(right, &Type::Int(_)) || matches!(right, &Type::Float(_)))
+                    || left == right && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
                 {
                     Ok(left.clone())
                 } else {
@@ -618,10 +706,10 @@ impl TypeChecker {
             | BinaryOperator::GreaterThan
             | BinaryOperator::LessThanOrEqual
             | BinaryOperator::GreaterThanOrEqual => {
-                if right == &Type::Infer && (matches!(left, &Type::Int(_)) || left == &Type::Float)
+                if right == &Type::Infer && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
                     || left == &Type::Infer
-                        && (matches!(right, &Type::Int(_)) || right == &Type::Float)
-                    || left == right && (matches!(left, &Type::Int(_)) || left == &Type::Float)
+                        && (matches!(right, &Type::Int(_)) || matches!(right, &Type::Float(_)))
+                    || left == right && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
                 {
                     Ok(Type::Bool)
                 } else {
@@ -652,7 +740,7 @@ impl TypeChecker {
     fn typecheck_unary_op(&self, op: &UnaryOperator, operand: &Type) -> Result<Type, TypeError> {
         match op {
             UnaryOperator::Negate => {
-                if matches!(operand, &Type::Int(_)) || operand == &Type::Float {
+                if matches!(operand, &Type::Int(_)) || matches!(operand, &Type::Float(_)) {
                     Ok(operand.clone())
                 } else {
                     Err(TypeError {
@@ -676,7 +764,7 @@ impl TypeChecker {
     #[instrument]
     pub fn typecheck_array_literal(
         &mut self,
-        elements: &ThinVec<Box<AstNode>>,
+        elements: &ThinVec<Box<AstElem>>,
     ) -> Result<Type, TypeError> {
         if elements.is_empty() {
             return Ok(Type::Array(P(Type::Infer)));
@@ -704,14 +792,14 @@ impl TypeChecker {
     }
 
     #[instrument(skip(self))]
-    pub fn typecheck_program(&mut self, program: &AstNode) -> Result<(), TypeError> {
+    pub fn typecheck_program(&mut self, program: &AstElem) -> Result<(), TypeError> {
         self.infer_type(program)?;
         Ok(())
     }
 }
 
 /// Type checks an AST node.
-pub fn typecheck(ast: &AstNode) -> Result<(), TypeError> {
+pub fn typecheck(ast: &AstElem) -> Result<(), TypeError> {
     let mut checker = TypeChecker::new();
     checker.typecheck_program(ast)?;
     Ok(())
@@ -767,19 +855,14 @@ pub enum BindingType {
     Function(FnAttr),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Visibility {
-    Local(Option<Path>),
-    Public,
-    Private,
-    CrateLevel
-}
+
 
 /// Represents a type in the Alloy type system.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
-    Int(IntTy),
-    Float,
+    Int(IntKind),
+    UInt(UintKind),
+    Float(FloatKind),
     Bool,
     Char,
     String,
@@ -818,8 +901,8 @@ impl Type {
     pub fn normalize(self) -> Self {
         match self {
             Type::Simple(name) => match name.as_str() {
-                "int" => Type::Int(IntTy::Int),
-                "float" => Type::Float,
+                "int" => Type::Int(IntKind::Int),
+                "float" => Type::Float(FloatKind::Float),
                 "bool" => Type::Bool,
                 "char" => Type::Char,
                 "string" => Type::String,
@@ -854,7 +937,8 @@ impl From<Ty> for Type {
     fn from(ty: Ty) -> Self {
         match ty.kind {
             TyKind::Int(ty) => Type::Int(ty),
-            TyKind::Float => Type::Float,
+            TyKind::Uint(ty) => Type::UInt(ty),
+            TyKind::Float(ty) => Type::Float(ty),
             TyKind::Bool => Type::Bool,
             TyKind::Char => Type::Char,
             TyKind::String => Type::String,
@@ -943,7 +1027,7 @@ impl From<TypeOp> for AlgebraicType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PatternType {
     Wildcard,
-    Ident(BindingMode, Ident, Option<Box<PatternType>>),
+    Ident(BindAttr, Ident, Option<Box<PatternType>>),
     Tuple(ThinVec<Box<PatternType>>),
     TupleStruct(Option<Box<QualifiedSelf>>, Path, ThinVec<Box<PatternType>>),
     Struct(Option<Box<QualifiedSelf>>, Path, ThinVec<PatternField>),

@@ -8,7 +8,7 @@
 use thin_vec::ThinVec;
 
 use crate::{
-    ast::{ty::{Const, FnRetTy, IntTy, Mutability, Ty}, AstNode, BinaryOperator, UnaryOperator},
+    ast::{ty::{Const, FnRetTy, IntKind, Mutability, Ty, UintKind}, AstNode, BinaryOperator, UnaryOperator},
     type_checker::{Param, Type},
 };
 
@@ -349,10 +349,9 @@ impl Transpiler {
     /// Transpiles a type annotation to its Rust equivalent.
     fn transpile_type(&self, type_annotation: &Type) -> String {
         match type_annotation {
-            Type::Int(IntTy::Int) => "i32".to_string(),
-            Type::Int(IntTy::Byte) => "u8".to_string(),
-            Type::Int(IntTy::UInt) => "usize".to_string(),
-            Type::Float => "f64".to_string(),
+            Type::Int(i) => format!("{}", i),
+            Type::UInt(u) => format!("{}", u),
+            Type::Float(f) => format!("{}", f),
             Type::String => "String".to_string(),
             Type::Bool => "bool".to_string(),
             Type::Simple(name) => name.clone(),
