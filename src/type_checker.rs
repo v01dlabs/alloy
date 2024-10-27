@@ -146,6 +146,7 @@ impl TypeChecker {
             ExprKind::Match { expr, arms } => todo!(),
             ExprKind::Block(block, _) => todo!(),
             ExprKind::Await(expr) => todo!(),
+            ExprKind::Guard { condition, body } => todo!(),
             ExprKind::Assign { lhs, rhs } => todo!(),
             ExprKind::AssignOp { lhs, op, rhs } => todo!(),
             ExprKind::Closure { callee, params, closure } => todo!(),

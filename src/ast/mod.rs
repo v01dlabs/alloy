@@ -339,6 +339,15 @@ impl Expr {
         }
     }
 
+    pub fn guard(condition: Box<Expr>, body: Box<Expr>) -> Self {
+        let tokens: ThinVec<Token> = condition.tokens.as_slice().iter()
+            .chain(body.tokens.as_slice()).cloned().collect();
+        Self {
+            kind: ExprKind::Guard { condition, body },
+            tokens: Arc::new(tokens),
+        }
+    }
+
     pub fn literal(value: Literal) -> Self {
         Self { kind: ExprKind::Literal(value), tokens: Arc::new(ThinVec::new()) }
     }
@@ -554,6 +563,10 @@ pub enum ExprKind {
     Type {
         expr: Box<Expr>,
         ty: Box<Ty>,
+    },
+    Guard {
+        condition: Box<Expr>,
+        body: Box<Expr>,
     },
     If {
         cond: Box<Expr>,

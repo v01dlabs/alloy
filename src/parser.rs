@@ -718,11 +718,13 @@ impl Parser {
     fn parse_function_call(&mut self, callee: Box<Expr>) -> Result<Box<Expr>, ParserError> {
         let arguments = self.parse_arguments()
             .inspect_err(|e|{error!(%e);})?;
+        let func = P(Expr::call(callee, None, arguments));
+        debug!("parsed function call: {:?}", func);
         if self.check(&Token::LBrace) && self.will_occur_in_next_scope(&Token::In) {
             self.consume(&Token::LBrace)?;
-            self.parse_trailing_closure(callee).map(P).inspect_err(|e|{error!(%e);})
+            self.parse_trailing_closure(func).map(P).inspect_err(|e|{error!(%e);})
         } else {
-            Ok(P(Expr::call(callee, None, arguments)))
+            Ok(func)
         }
     }
 
@@ -959,8 +961,8 @@ impl Parser {
         self.consume(&Token::Guard)?;
         let condition = self.parse_expression(Precedence::None).inspect_err(|e|{error!(%e);})?;
         self.consume(&Token::Else)?;
-        let body = self.parse_statement().inspect_err(|e|{error!(%e);})?;
-        todo!()
+        let body = self.parse_block().inspect_err(|e|{error!(%e);})?;
+        Ok(P(Statement::expr(P(Expr::guard(condition, P(Expr::block(body, None)))))))
     }
 
     /// Parses a return statement.

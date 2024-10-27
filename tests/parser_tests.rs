@@ -320,7 +320,11 @@ fn test_parse_trailing_closure() {
         result.unwrap_err()
     );
     let expected = P(Expr::trailing_closure(
-        P(Expr::path(None, Path::ident("someFunction".to_string()))),
+        P(Expr::call(
+            P(Expr::path(None, Path::ident("someFunction".to_string()))), 
+            None,
+            thin_vec![]
+        )),
         thin_vec![],
         P(Expr::block(thin_vec![
             P(Statement::expr(P(Expr::return_(
@@ -656,7 +660,9 @@ fn test_parse_multi_pipeline() {
             P(AstElem::expr(P(Expr::pipeline(
                 P(AstElem::expr(P(Expr::pipeline(P(AstElem::item(
                     P(Item::bind("processed".to_string(),
-                        thin_vec![],
+                        thin_vec![
+                            BindAttr { mutability: Mutability::Not, ref_kind: None },
+                        ],
                         None,
                         Some(P(Expr::path(
                             None,
@@ -689,13 +695,12 @@ fn test_parse_multi_pipeline() {
                     )),
                 )),
             )))),
-            // current parsing error is missing the function call here
             P(Expr::trailing_closure(
                 P(Expr::call(
                     P(Expr::path(None, Path::ident("fold".to_string()))),
                     None,
                     thin_vec![
-                        P(Expr::path(None, Path::ident("0".to_string()))),
+                        P(Expr::literal(Literal::Int(0))),
                     ],
                 )),
                 thin_vec![
