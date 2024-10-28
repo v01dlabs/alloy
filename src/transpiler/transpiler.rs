@@ -366,10 +366,7 @@ impl Transpiler {
             Type::Char => "char".to_string(),
             Type::Path(path) => todo!(),
             Type::SizedArray(inner_type, size) => {
-                let size = match size {
-                    Const(box AstNode::IntLiteral(size)) => size,
-                    _ => todo!()
-                };
+                let size = size.to_string();    
                 format!("[{}; {}]", self.transpile_type(inner_type), size)
             },
             Type::Const(_) => todo!(),

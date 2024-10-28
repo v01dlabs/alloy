@@ -7,12 +7,12 @@
 use futures::stream::Next;
 use rand::seq::index;
 use thin_vec::{thin_vec, ThinVec};
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, field, info, instrument, trace};
 
 use crate::ast::{AstElem, AstElemKind, AstNode, BinaryOperator, BindAttr, Block, Expr, ExprKind, FnAttr, ImplKind, Item, Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P};
 use crate::error::ParserError;
 use crate::lexer::token::Token;
-use crate::ast::ty::{ ByRef, FnRetTy, Function, GenericParam, GenericParamKind, Ident, Mutability, Param, Path, Pattern, PatternKind, RefKind, Ty, TyKind, TypeOp};
+use crate::ast::ty::{ ByRef, FnRetTy, Function, GenericParam, GenericParamKind, Ident, Mutability, Param, Path, Pattern, PatternKind, QualifiedSelf, RefKind, Ty, TyKind, TypeOp};
 use itertools::{Itertools, MultiPeek};
 use core::f32::consts::E;
 use std::iter::Peekable;
@@ -383,7 +383,59 @@ impl Parser {
         Ok(P(Item::enum_(name.to_simple().unwrap(), generic_params, ThinVec::new(), variants)))
     }
 
+    /// Are we sure this could not possibly be the start of a pattern?
+    ///
+    /// Currently, this only accounts for tokens that can follow identifiers
+    /// in patterns, but this can be extended as necessary.
+    fn isnt_pattern_start(&mut self) -> bool {
+        match self.peek() {
+            | Some(Token::Eq)
+            | Some(Token::Colon)
+            | Some(Token::Comma)
+            | Some(Token::Semicolon)
+            | Some(Token::LBrace)
+            | Some(Token::RBrace)
+            | Some(Token::RParen) => true,
+            _ => false,
+        }
+
+    }
+
+    fn parse_paren_comma_pattern(&mut self) -> Result<ThinVec<Box<Pattern>>, ParserError> {
+        self.consume(&Token::LParen)?;
+        let mut arguments = ThinVec::new();
+        if !self.check(&Token::RParen) {
+            loop {
+                arguments.push(
+                    P(self.parse_pattern_internal(Some(Expected::ArgumentName))
+                    .inspect_err(|e|{error!(%e);})?));
+                debug!("parsed arguments: {:?}", arguments);
+                if !self.consume_if(&Token::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(&Token::RParen)?;
+        Ok(arguments)
+    }
+
+    #[instrument]
+    fn parse_pat_tuple_struct(
+        &mut self,
+        qual_self: Option<Box<QualifiedSelf>>,
+        path: Path,
+    ) -> Result<PatternKind, ParserError> {
+        let fields = self.parse_paren_comma_pattern()?;
+        Ok(PatternKind::TupleStruct(qual_self, path, fields))
+    }
+
+    #[instrument]
     fn parse_pattern(&mut self) -> Result<Pattern, ParserError> {
+        todo!()
+    }
+
+    #[instrument]
+    fn parse_pattern_internal(&mut self, expected: Option<Expected>) -> Result<Pattern, ParserError> {
         todo!()
     }
 
@@ -1308,3 +1360,35 @@ pub fn parse(tokens: Vec<Token>) -> Result<Box<AstElem>, ParserError> {
     let mut parser = Parser::new(tokens);
     parser.parse()
 }
+
+
+
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub enum Expected {
+    ParameterName,
+    ArgumentName,
+    Identifier,
+    BindingPattern,
+}
+
+impl Expected {
+    
+    fn to_string_or_fallback(expected: Option<Expected>) -> &'static str {
+        match expected {
+            Some(Expected::ParameterName) => "parameter name",
+            Some(Expected::ArgumentName) => "argument name",
+            Some(Expected::Identifier) => "identifier",
+            Some(Expected::BindingPattern) => "binding pattern",
+            None => "pattern",
+        }
+    }
+}
+
+/// The syntax location of a given pattern. Used for diagnostics.
+#[derive(Clone, Copy, Debug)]
+pub enum PatternLocation {
+    LetBinding,
+    FunctionParameter,
+}
+
+

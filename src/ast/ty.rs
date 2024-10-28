@@ -3,7 +3,7 @@ use std::{fmt, sync::Arc};
 use thin_vec::{thin_vec, ThinVec};
 
 use crate::{
-    ast::{AstNode, BindAttr, WithClauseItem}, lexer::token::Token, type_checker::Type}
+    ast::{AstElem, AstNode, BindAttr, WithClauseItem}, lexer::token::Token, type_checker::Type}
 ;
 
 
@@ -13,6 +13,58 @@ pub type Ident = String;
 pub struct Ty {
     pub kind: TyKind,
     pub tokens: Arc<ThinVec<Token>>,
+}
+
+impl fmt::Display for Ty {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.kind {
+            TyKind::Int(ty) => write!(f, "{ty}"),
+            TyKind::Uint(ty) => write!(f, "{ty}"),
+            TyKind::Float(ty) => write!(f, "{ty}"),
+            TyKind::Bool => write!(f, "bool"),
+            TyKind::Char => write!(f, "char"),
+            TyKind::String => write!(f, "string"),
+            TyKind::Array(ty) => write!(f, "[{ty}]"),
+            TyKind::Path(path) => write!(f, "{path}"),
+            TyKind::Tuple(types) => {
+                write!(f, "(")?;
+                for (i, ty) in types.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{ty}")?;
+                }
+                write!(f, ")")
+            }
+            TyKind::SizedArray(ty, size) => write!(f, "[{ty}; {size}]"),
+            TyKind::Function(function) => write!(f, "{function}"),
+            TyKind::Const(const_) => write!(f, "{const_}"),
+            TyKind::Algebraic(type_op) => write!(f, "{type_op}"),
+            TyKind::Generic(name, types) => {
+                write!(f, "{name}")?;
+                write!(f, "<")?;
+                for (i, ty) in types.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{ty}")?;
+                }
+                write!(f, ">")
+            }
+            TyKind::Paren(ty) => write!(f, "({ty})"),
+            TyKind::Ref(kind, ty) => write!(f, "{kind} {ty}"),
+            TyKind::Pattern(ty, pat) => {
+                write!(f, "{ty}")?;
+                write!(f, " {pat}")
+            }
+            TyKind::Simple(name) => write!(f, "{name}"),
+            TyKind::Any => write!(f, "any"),
+            TyKind::Infer => write!(f, "?"),
+            TyKind::SelfType => write!(f, "self"),
+            TyKind::Never => write!(f, "never"),
+            TyKind::Err => write!(f, "err"),
+        }
+    }
 }
 
 impl Ty {
@@ -84,7 +136,13 @@ pub enum TyKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Const(pub Box<AstNode>);
+pub struct Const(pub Box<AstElem>);
+
+impl fmt::Display for Const {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}   
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
@@ -93,6 +151,19 @@ pub struct Function {
     pub output: FnRetTy,
 }
 
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "fn(")?;
+        for (i, param) in self.inputs.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{param}")?;
+        }
+        write!(f, ") -> {}", self.output)   
+    }
+    
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParam {
@@ -101,6 +172,12 @@ pub struct GenericParam {
     pub attrs: ThinVec<AttrItem>,
     pub bounds: Option<TypeOp>,
     pub is_placeholder: bool,
+}
+
+impl fmt::Display for GenericParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 impl GenericParam {
@@ -147,11 +224,26 @@ pub struct Param {
     pub ty: Box<Ty>,
 }
 
+impl fmt::Display for Param {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.name, self.ty)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum FnRetTy {
     Infer,
     Ty(Box<Ty>),
 }
+
+impl fmt::Display for FnRetTy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FnRetTy::Infer => write!(f, "_"),
+            FnRetTy::Ty(ty) => write!(f, "{ty}"),
+        }
+    }
+}   
 
 impl FnRetTy {
     pub fn to_type(&self) -> Option<Type> {
@@ -176,6 +268,12 @@ pub struct AttrItem {
     pub path: Path,
 }
 
+impl fmt::Display for AttrItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.path)
+    }
+}   
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeOp {
     And(ThinVec<Box<Ty>>),
@@ -184,6 +282,46 @@ pub enum TypeOp {
     Not(Box<Ty>),
     Subset(Box<Ty>),
     Implements(Box<Ty>),
+}
+
+impl fmt::Display for TypeOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TypeOp::And(thin_vec) => {
+                write!(f, "( ")?;
+                for (i, ty) in thin_vec.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " + ")?;
+                    }
+                    write!(f, "{ty}")?;
+                }
+                write!(f, " ) ")
+            }
+            TypeOp::Or(thin_vec) => {
+                write!(f, "( ")?;
+                for (i, ty) in thin_vec.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{ty}")?;
+                }
+                write!(f, " ) ")
+            }
+            TypeOp::Xor(thin_vec) => {
+                write!(f, "( ")?;
+                for (i, ty) in thin_vec.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " | ")?;
+                    }
+                    write!(f, "{ty}")?;
+                }
+                write!(f, " ) ")
+            }
+            TypeOp::Not(ty) => write!(f, "!{ty} "),
+            TypeOp::Subset(ty) => write!(f, ": {ty} "),
+            TypeOp::Implements(ty) => write!(f, "impl {ty} "),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -216,6 +354,84 @@ impl Pattern {
     }
 }
 
+impl fmt::Display for Pattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.kind {
+            PatternKind::Wildcard => write!(f, "_"),
+            PatternKind::Ident(bind, ident, pat) => {
+                if let Some(pat) = pat {
+                    write!(f, "{bind}{ident}: {pat}")
+                } else {
+                    write!(f, "{bind}{ident}")
+                }
+            }
+            PatternKind::Tuple(patterns) => {
+                write!(f, "(")?;
+                for (i, pattern) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{pattern}")?;
+                }
+                write!(f, ")")
+            }
+            PatternKind::TupleStruct(qual_self, path, patterns) => {
+                if let Some(qual_self) = qual_self {
+                    write!(f, "{qual_self}")?;
+                }
+                write!(f, "{path}")?;
+                write!(f, "(")?;
+                for (i, pattern) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{pattern}")?;
+                }
+                write!(f, ")")
+            }
+            PatternKind::Struct(qual_self, path, patterns) => {
+                if let Some(qual_self) = qual_self {
+                    write!(f, "{qual_self}")?;
+                }
+                write!(f, "{path}")?;
+                write!(f, "{{")?;
+                for (i, pat_field) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{pat_field}")?;
+                }
+                write!(f, "}}")
+            }
+            PatternKind::Path(qual_self, path) => {
+                if let Some(qual_self) = qual_self {
+                    write!(f, "{qual_self}")?;
+                }
+                write!(f, "{path}")
+            }
+            PatternKind::Ref(pat, kind) => {
+                write!(f, "{kind} {pat}")
+            }
+            PatternKind::Or(thin_vec) => {
+                write!(f, "(")?;
+                for (i, pattern) in thin_vec.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " | ")?;
+                    }
+                    write!(f, "{pattern}")?;
+                }
+                write!(f, ")")
+            },
+            PatternKind::TypeOp(type_op, pattern) => {
+                write!(f, "{type_op} {pattern}")
+            }
+            PatternKind::Paren(pattern) => todo!(),
+            PatternKind::Never => todo!(),
+            PatternKind::Err => todo!(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PatternKind {
     Wildcard,
@@ -241,6 +457,12 @@ pub struct PatField {
     pub is_shorthand: bool,
     pub attrs: ThinVec<AttrItem>,
     pub is_placeholder: bool,
+}
+
+impl fmt::Display for PatField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {} #[{:?}]", self.ident, self.pat, self.attrs)
+    }
 }
 
 /// The mode of a binding (`mut`, `ref mut`, etc).
@@ -284,9 +506,25 @@ pub enum Mutability {
     Mut,
 }
 
+impl fmt::Display for Mutability {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Mutability::Not => write!(f, ""),
+            Mutability::Mut => write!(f, "mut "),
+        }
+    }
+    
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Path {
     pub segments: ThinVec<Ident>,
+}
+
+impl fmt::Display for Path {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.segments.join("::"))
+    }
 }
 
 impl Path {
@@ -310,10 +548,25 @@ pub struct QualifiedSelf {
     pub ty: Box<Ty>,
 }
 
+impl fmt::Display for QualifiedSelf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.ty)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RefKind {
     ThreadLocal(Mutability),
     Sync(Mutability),
+}
+
+impl fmt::Display for RefKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RefKind::ThreadLocal(mutability) => write!(f, "ref {mutability}"),
+            RefKind::Sync(mutability) => write!(f, "shared {mutability}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
