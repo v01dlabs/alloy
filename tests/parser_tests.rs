@@ -1,17 +1,15 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{ty::{FnRetTy, Function, GenericParam, GenericParamKind, Mutability, Param, Path, Pattern, Ty, TyKind}, AstElem, AstNode, BinaryOperator, BindAttr, Expr, FnAttr, ImplKind, Item, Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P},
+    ast::{ty::{FnRetTy, Function, GenericParam, GenericParamKind, Mutability, Param, Path, Pattern, Ty, TyKind}, AstElem, BinaryOperator, BindAttr, Expr, FnAttr, ImplKind, Item, Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P},
     error::ParserError,
     lexer::{token::Token, Lexer},
     parser::{parse, Parser},
 };
 use thin_vec::thin_vec;
-use tracing_subscriber;
 
 fn init_tracing() {
-    let format = tracing_subscriber::fmt::format()
-        .pretty();
+    let format = tracing_subscriber::fmt::format().pretty();
 
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
@@ -20,7 +18,6 @@ fn init_tracing() {
         .with_ansi(true)
         .try_init();
 }
-
 
 // Helper function to create a parser from a vector of tokens
 fn create_parser(tokens: Vec<Token>) -> Parser {
@@ -644,7 +641,7 @@ fn test_parse_multi_pipeline() {
     let input = r#"
         let processed = data
             |> map { x in x * 2 }
-            |> filter { x in  x > 0 } 
+            |> filter { x in  x > 0 }
             |> fold(0) { acc, x in acc + x }
     "#;
     let tokens = Lexer::tokenize(input).unwrap();

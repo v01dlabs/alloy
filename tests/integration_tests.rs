@@ -1,14 +1,13 @@
 #![feature(box_patterns)]
 
-use alloy::ast::AstNode;
+use alloy::ast::AstElem;
 use alloy::parser::Parser;
 
 use alloy::type_checker::typecheck;
 use alloy::Lexer;
 
 fn init_tracing() {
-    let format = tracing_subscriber::fmt::format()
-        .pretty();
+    let format = tracing_subscriber::fmt::format().pretty();
 
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)

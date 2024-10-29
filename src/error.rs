@@ -11,24 +11,32 @@ const _ALLOY_BLUE: DynColors = DynColors::Rgb(49, 120, 198);
 #[derive(Debug, Diagnostic)]
 pub enum CompilerError {
     #[diagnostic(code(alloy::lexer_error))]
-    LexerError(LexerError),
-
+    Lexer(LexerError),
     #[diagnostic(code(alloy::parser_error))]
-    ParserError(ParserError),
+    Parser(ParserError),
+    #[diagnostic(code(allow::transpiler_error))]
+    Transpiler(TranspilerError),
     #[diagnostic(code(alloy::type_error))]
-    TypeError(TypeError),   
+    Type(TypeError),
 }
 
 impl fmt::Display for CompilerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CompilerError::LexerError(e) => {
+            CompilerError::Lexer(e) => {
                 write!(f, "{}", format!("Lexer error: {}", e).color(ALLOY_YELLOW))
             }
-            CompilerError::ParserError(e) => {
+            CompilerError::Parser(e) => {
                 write!(f, "{}", format!("Parser error: {}", e).color(ALLOY_ORANGE))
-            },
-            CompilerError::TypeError(e) => {
+            }
+            CompilerError::Transpiler(e) => {
+                write!(
+                    f,
+                    "{}",
+                    format!("Transpiler error: {}", e).color(ALLOY_ORANGE)
+                )
+            }
+            CompilerError::Type(e) => {
                 write!(f, "{}", format!("Type error: {}", e).color(ALLOY_ORANGE))
             }
         }
@@ -38,9 +46,10 @@ impl fmt::Display for CompilerError {
 impl Error for CompilerError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            CompilerError::LexerError(e) => Some(e),
-            CompilerError::ParserError(e) => Some(e),
-            CompilerError::TypeError(e) => Some(e),
+            CompilerError::Lexer(e) => Some(e),
+            CompilerError::Parser(e) => Some(e),
+            CompilerError::Transpiler(e) => Some(e),
+            CompilerError::Type(e) => Some(e),
         }
     }
 }
@@ -121,6 +130,17 @@ impl fmt::Display for ParserError {
 
 impl Error for ParserError {}
 
+/// Represents a transpiler error.
+#[derive(Debug, thiserror::Error)]
+pub struct TranspilerError {
+    pub message: String,
+}
+
+impl std::fmt::Display for TranspilerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Transpiler Error: {}", self.message)
+    }
+}
 
 /// Represents a typing error.
 #[derive(Debug, thiserror::Error)]

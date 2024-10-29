@@ -10,14 +10,15 @@ use tracing::{error, instrument};
 use crate::{
     ast::{
         self, ty::{
-            AttrItem, Const, FloatKind, FnRetTy, Ident, IntKind, Mutability, PatField, Path, Pattern, PatternKind, RefKind, Ty, TyKind, TypeOp, UintKind
-        }, AstElem, AstElemKind, AstNode, BinaryOperator, BindAttr, Statement, StatementKind, Item, ItemKind, Expr, ExprKind, UnaryOperator, Visibility, P
+            AttrItem, Const, FloatKind, FnRetTy, Ident, IntKind, Mutability, PatField, Path,
+            Pattern, PatternKind, RefKind, Ty, TyKind, TypeOp, UintKind,
+        }, 
+        AstElem, AstElemKind, BinaryOperator, BindAttr, Statement, StatementKind, Item, ItemKind, Expr, ExprKind, UnaryOperator, Visibility, P,
     },
     error::TypeError,
 };
 
 use std::collections::HashMap;
-
 
 /// The type environment stores variable and function types.
 type TypeEnv = HashMap<String, Box<TypeBinding>>;
@@ -46,7 +47,13 @@ impl TypeChecker {
 
     pub fn add_anon_type(&mut self, ty: &Type) {
         let new_name = self.new_name();
-        self.env.insert(new_name, P(TypeBinding::variable(ty.clone(), BindAttr::new(false, None))));
+        self.env.insert(
+            new_name,
+            P(TypeBinding::variable(
+                ty.clone(),
+                BindAttr::new(false, None),
+            )),
+        );
     }
 
     pub fn copy_env(&self) -> Self {
@@ -56,19 +63,37 @@ impl TypeChecker {
         }
     }
 
-    pub fn insert_variable(&mut self, name: &String, ty: &Type, binding: BindAttr) {
-        self.env.insert(name.clone(), P(TypeBinding::variable(ty.clone(), binding)));
+    pub fn insert_variable(&mut self, name: &str, ty: &Type, binding: BindAttr) {
+        self.env.insert(
+            name.to_string(),
+            P(TypeBinding::variable(ty.clone(), binding)),
+        );
     }
 
-    pub fn insert_type(&mut self, name: &String, ty: &Type) {
-        self.env.insert(name.clone(), P(TypeBinding::new(ty.clone(), Binding {
-            visibility: Visibility::Local(None),
-            ty: BindingType::Value(BindAttr::new(false, None)),
-        })));
+    pub fn insert_type(&mut self, name: &str, ty: &Type) {
+        self.env.insert(
+            name.to_string(),
+            P(TypeBinding::new(
+                ty.clone(),
+                Binding {
+                    visibility: Visibility::Local(None),
+                    ty: BindingType::Value(BindAttr::new(false, None)),
+                },
+            )),
+        );
     }
 
-    pub fn insert_function(&mut self, name: &String, ty: &Type, fn_attr: FnAttr, visibility: Option<Visibility>) {
-        self.env.insert(name.clone(), P(TypeBinding::function(ty.clone(), fn_attr, visibility)));
+    pub fn insert_function(
+        &mut self,
+        name: &str,
+        ty: &Type,
+        fn_attr: FnAttr,
+        visibility: Option<Visibility>,
+    ) {
+        self.env.insert(
+            name.to_owned(),
+            P(TypeBinding::function(ty.clone(), fn_attr, visibility)),
+        );
     }
 
     pub fn resolve_ident(&self, ident: &Ident) -> Result<Box<TypeBinding>, TypeError> {
@@ -84,13 +109,11 @@ impl TypeChecker {
     pub fn resolve_function(&self, name: &Ident) -> Result<Box<Type>, TypeError> {
         match self.env.get(name) {
             Some(ty) => match &ty.binding.ty {
-                BindingType::Function(fn_attr) => {
-                    match ty.ty.clone() {
-                        Type::Function(f) => Ok(P(Type::Function(f))),
-                        _ => Err(TypeError {
-                            message: format!("Expected function, got {:?}", ty),
-                        }),
-                    }
+                BindingType::Function(_fn_attr) => match ty.ty.clone() {
+                    Type::Function(f) => Ok(P(Type::Function(f))),
+                    _ => Err(TypeError {
+                        message: format!("Expected function, got {:?}", ty),
+                    }),
                 },
                 e => Err(TypeError {
                     message: format!("Expected function, got {:?}", e),
@@ -617,7 +640,7 @@ impl TypeChecker {
                             ),
                         });
                     }
-                    generic_checker.insert_type(&generic_param.name, &ty);
+                    generic_checker.insert_type(&generic_param.name, ty);
                 }
                 GenericParamKind::Type(None) => {
                     generic_checker.insert_type(&generic_param.name, &Type::Infer);
@@ -634,7 +657,7 @@ impl TypeChecker {
                             ),
                         });
                     }
-                    generic_checker.insert_type(&generic_param.name, &ty);
+                    generic_checker.insert_type(&generic_param.name, ty);
                 }
                 GenericParamKind::Const {
                     box ty,
@@ -648,7 +671,8 @@ impl TypeChecker {
                             ),
                         });
                     }
-                    generic_checker.insert_type(&generic_param.name, &P(Type::Const(value.clone())));
+                    generic_checker
+                        .insert_type(&generic_param.name, &P(Type::Const(value.clone())));
                 }
             }
         }
@@ -770,11 +794,15 @@ impl TypeChecker {
         if elements.is_empty() {
             return Ok(Type::Array(P(Type::Infer)));
         }
-        let mut first_type = self.infer_type(elements.first().unwrap())
-            .inspect_err(|e|{error!(%e);})?;
+        let mut first_type = self
+            .infer_type(elements.first().unwrap())
+            .inspect_err(|e| {
+                error!(%e);
+            })?;
         for element in elements.iter().skip(1) {
-            let element_type = self.infer_type(element)
-                .inspect_err(|e|{error!(%e);})?;
+            let element_type = self.infer_type(element).inspect_err(|e| {
+                error!(%e);
+            })?;
             if first_type == Type::Infer {
                 // If we couldn't immediately figure out the first type, maybe the next one will work
                 first_type = element_type.clone();
@@ -821,26 +849,28 @@ pub struct TypeBinding {
 
 impl TypeBinding {
     pub fn new(ty: Type, binding: Binding) -> Self {
-        TypeBinding {
-            ty,
-            binding,
-        }
+        TypeBinding { ty, binding }
     }
 
     pub fn variable(ty: Type, binding: BindAttr) -> Self {
-        TypeBinding::new(ty, Binding {
-            visibility: Visibility::Local(None),
-            ty: BindingType::Value(binding),
-        })
+        TypeBinding::new(
+            ty,
+            Binding {
+                visibility: Visibility::Local(None),
+                ty: BindingType::Value(binding),
+            },
+        )
     }
 
     pub fn function(ty: Type, binding: FnAttr, visibility: Option<Visibility>) -> Self {
-        TypeBinding::new(ty, Binding {
-            visibility: visibility.unwrap_or(Visibility::Private),    
-            ty: BindingType::Function(binding),
-        })
+        TypeBinding::new(
+            ty,
+            Binding {
+                visibility: visibility.unwrap_or(Visibility::Private),
+                ty: BindingType::Function(binding),
+            },
+        )
     }
-
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1155,18 +1185,22 @@ impl From<crate::ast::ty::Function> for Function {
 pub struct FnAttr {
     pub is_async: bool,
     pub is_shared: bool,
-    pub effects: ThinVec<Box<WithClauseItem>>,  
+    pub effects: ThinVec<Box<WithClauseItem>>,
 }
 
 impl FnAttr {
-    pub fn from_list(attrs: &[crate::ast::FnAttr]) -> Self {    
+    pub fn from_list(attrs: &[crate::ast::FnAttr]) -> Self {
         let mut is_async = false;
         let mut is_shared = false;
-        let mut effects = ThinVec::new();   
+        let mut effects = ThinVec::new();
         for attr in attrs {
             is_async = is_async || attr.is_async;
             is_shared = is_shared || attr.is_shared;
-            let mut e: ThinVec<_> = attr.effects.iter().map(|e| P(WithClauseItem::from(*e.clone()))).collect();
+            let mut e: ThinVec<_> = attr
+                .effects
+                .iter()
+                .map(|e| P(WithClauseItem::from(*e.clone())))
+                .collect();
             effects.append(&mut e);
         }
         FnAttr {
@@ -1177,7 +1211,6 @@ impl FnAttr {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum WithClauseItem {
     Generic(GenericParam),
@@ -1187,8 +1220,12 @@ pub enum WithClauseItem {
 impl From<crate::ast::WithClauseItem> for WithClauseItem {
     fn from(item: crate::ast::WithClauseItem) -> Self {
         match item {
-            crate::ast::WithClauseItem::Generic(generic_param) => WithClauseItem::Generic(GenericParam::from(generic_param)),
-            crate::ast::WithClauseItem::Algebraic(op) => WithClauseItem::Algebraic(AlgebraicType::from(op)),    
+            crate::ast::WithClauseItem::Generic(generic_param) => {
+                WithClauseItem::Generic(GenericParam::from(generic_param))
+            }
+            crate::ast::WithClauseItem::Algebraic(op) => {
+                WithClauseItem::Algebraic(AlgebraicType::from(op))
+            }
         }
     }
 }
