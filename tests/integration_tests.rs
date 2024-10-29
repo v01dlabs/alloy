@@ -1,6 +1,6 @@
 #![feature(box_patterns)]
 
-use alloy::ast::AstNode;
+use alloy::ast::AstElem;
 use alloy::parser::Parser;
 
 use alloy::type_checker::typecheck;

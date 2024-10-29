@@ -9,8 +9,7 @@ use thin_vec::ThinVec;
 
 use crate::{
     ast::{
-        ty::{Const, FnRetTy, IntKind, Mutability, Ty, UintKind},
-        AstNode, BinaryOperator, UnaryOperator,
+        ty::{Const, FnRetTy, IntKind, Mutability, Pattern, PatternKind, Ty, UintKind}, AstElem, AstElemKind, BinaryOperator, Expr, ExprKind, Item, ItemKind, Literal, LocalKind, Statement, StatementKind, UnaryOperator, P
     },
     error::TranspilerError,
     type_checker::{Param, Type},
@@ -36,114 +35,73 @@ impl Transpiler {
     /// Main entry point for transpiling an AST node to Rust code.
     ///
     /// This method dispatches to specific transpilation methods based on the type of the AST node.
-    pub fn transpile(&mut self, node: &AstNode) -> String {
-        match node {
-            AstNode::Program(statements) => self.transpile_program(&statements[..]),
-            AstNode::FunctionDeclaration {
-                name,
-                attrs,
-                body,
-                function,
-            } => self.transpile_function(
-                name,
+    pub fn transpile(&mut self, node: &AstElem) -> String {
+        match &node.kind {
+            AstElemKind::Program(statements) => self.transpile_program(&statements[..]),
+            AstElemKind::Expr(expr) => self.transpile_expr(expr),
+            AstElemKind::Item(item) => self.transpile_item(item),
+            AstElemKind::Statement(statement) => self.transpile_statement(statement),
+        }
+    }
+
+    fn transpile_item(&mut self, item: &Item) -> String {
+        match &item.kind {
+            ItemKind::Bind { 
+                name, 
+                attrs, 
+                type_annotation, 
+                initializer 
+            } => self.transpile_variable_declaration(
+                name.as_str(),
+                attrs
+                    .first()
+                    .map_or(false, |attr| attr.mutability == Mutability::Mut),
+                &type_annotation.as_ref().map(|ty| Type::from(*ty.clone())),
+                &initializer
+            ),
+            ItemKind::Fn { name, attrs, function, body } => self.transpile_function(
+                &name,
                 &function
                     .inputs
                     .iter()
                     .map(|param| param.clone().into())
                     .collect::<Vec<_>>(),
                 &function.output.to_type(),
-                &AstNode::Block(body.clone()),
+                &AstElem::expr(P(Expr::block(body.clone(), None))),
             ),
-            AstNode::VariableDeclaration {
-                name,
-                attrs,
-                type_annotation,
-                initializer,
-            } => self.transpile_variable_declaration(
-                name,
-                attrs
-                    .first()
-                    .map_or(false, |attr| attr.mutability == Mutability::Mut),
-                &type_annotation.as_ref().map(|ty| Type::from(*ty.clone())),
-                initializer,
-            ),
-            AstNode::Block(statements) => self.transpile_block(&statements[..]),
-            AstNode::ReturnStatement(expr) => self.transpile_return(expr),
-            AstNode::IfStatement {
-                condition,
-                then_branch,
-                else_branch,
-            } => self.transpile_if(condition, then_branch, else_branch),
-            AstNode::WhileLoop { condition, body } => self.transpile_while(condition, body),
-            AstNode::ForInLoop {
-                item,
-                iterable,
-                body,
-            } => self.transpile_for(
-                &Some(Box::new(AstNode::Identifier(item.clone()))),
-                &Some(Box::new(*iterable.clone())),
-                &None,
-                body,
-            ),
-            AstNode::BinaryOperation {
-                left,
-                operator,
-                right,
-            } => self.transpile_binary_op(left, operator, right),
-            AstNode::UnaryOperation { operator, operand } => {
-                self.transpile_unary_op(operator, operand)
-            }
-            AstNode::FunctionCall { callee, arguments } => self.transpile_function_call(
-                callee,
-                &arguments.iter().map(|arg| &**arg).collect::<Vec<_>>()[..],
-            ),
-            AstNode::Identifier(name) => name.clone(),
-            AstNode::IntLiteral(value) => value.to_string(),
-            AstNode::FloatLiteral(value) => value.to_string(),
-            AstNode::StringLiteral(value) => format!("\"{}\"", value),
-            AstNode::BoolLiteral(value) => value.to_string(),
-            AstNode::ArrayLiteral(elements) => self.transpile_array_literal(&elements),
-            AstNode::GuardStatement { condition, body } => todo!(),
-            AstNode::GenericFunctionCall {
-                name,
-                generic_args,
-                arguments,
-            } => todo!(),
-            AstNode::TrailingClosure { callee, closure } => todo!(),
-            AstNode::PipelineOperation { prev, next } => todo!(),
-            AstNode::EffectDeclaration {
-                name,
+            ItemKind::Effect { 
+                name, 
                 generic_params,
-                where_clause,
-                bounds,
-                members,
+                 bounds, 
+                 where_clause, 
+                 members
             } => todo!(),
-            AstNode::StructDeclaration {
+            ItemKind::Struct { 
                 name,
                 generic_params,
                 where_clause,
                 members,
             } => todo!(),
-            AstNode::EnumDeclaration {
+            ItemKind::Enum { 
                 name,
                 generic_params,
                 where_clause,
                 variants,
             } => todo!(),
-            AstNode::TraitDeclaration {
+            ItemKind::Trait {
                 name,
                 generic_params,
                 bounds,
                 where_clause,
                 members,
             } => todo!(),
-            AstNode::UnionDeclaration {
+            ItemKind::Union {
                 name,
                 generic_params,
                 bounds,
                 where_clause,
             } => todo!(),
-            AstNode::ImplDeclaration {
+            ItemKind::Impl { 
                 name,
                 generic_params,
                 kind,
@@ -153,12 +111,112 @@ impl Transpiler {
                 bounds,
                 members,
             } => todo!(),
-            AstNode::WithClause(items) => todo!(),
+        }
+    }
+    fn transpile_expr(&mut self, expr: &Expr) -> String {
+        match &expr.kind {
+            ExprKind::Array(elements) => self.transpile_array_literal(&elements),
+            ExprKind::ConstBlock(_) => todo!(),
+            ExprKind::Call { 
+                callee, 
+                generic_args, 
+                args } => self.transpile_function_call(
+                callee,
+                &args.iter().map(|arg|&**arg).collect::<Vec<_>>()[..],
+            ),
+            ExprKind::MethodCall { path_seg, receiver, args } => todo!(),
+            ExprKind::Binary { 
+                binop, 
+                lhs, 
+                rhs 
+            } => self.transpile_binary_op(lhs, binop, rhs),
+            ExprKind::Unary(unary_operator, operand) => {
+                self.transpile_unary_op(unary_operator, operand)
+            }
+            ExprKind::Cast(expr, ty) => todo!(),
+            ExprKind::Literal(literal) => literal.to_string(),
+            ExprKind::Let { 
+                pat, 
+                ty, 
+                init 
+            } => {
+                let pat_str = self.transpile_pattern(pat);
+                let ty_str = ty.as_ref()
+                    .map_or(
+                        String::new(), 
+                    |ty| format!(": {}", self.transpile_expr(ty)
+                ));
+                let init_str = init.as_ref()
+                .map_or(
+                    String::new(), 
+                    |init| self.transpile_expr(init)
+                );
+                format!("{}{}{};", pat_str, ty_str, init_str)
+            },
+            ExprKind::Type { expr, ty } => todo!(),
+            ExprKind::Guard { condition, body } => todo!(),
+            ExprKind::If { 
+                cond, 
+                then, 
+                else_
+             } => self.transpile_if(cond, then, else_),
+            ExprKind::While { cond, body, label } => self.transpile_while(cond, body),
+            ExprKind::For { 
+                pat, 
+                iter, 
+                body, 
+                label
+             } => self.transpile_for(
+                &Some(P(*pat.clone())),
+                &Some(P(*iter.clone())),
+                &None, 
+                body),
+            ExprKind::Loop { body, label } => todo!(),
+            ExprKind::Match { expr, arms } => todo!(),
+            ExprKind::Block(block, _) => self.transpile_block(&block.stmts[..]),
+            ExprKind::Await(expr) => todo!(),
+            ExprKind::Assign { lhs, rhs } => {
+                let lhs_str = self.transpile_expr(lhs);
+                let rhs_str = self.transpile_expr(rhs);
+                format!("{} = {};", lhs_str, rhs_str)
+            },
+            ExprKind::AssignOp { lhs, op, rhs } => todo!(),
+            ExprKind::Closure { callee, params, closure } => todo!(),
+            ExprKind::TrailingClosure { callee, args, closure } => todo!(),
+            ExprKind::Struct { qual_self, path, fields } => todo!(),
+            ExprKind::PipelineOperation { prev, next } => todo!(),
+            ExprKind::Field(expr, _) => todo!(),
+            ExprKind::Index { expr, index } => todo!(),
+            ExprKind::Range { start, end, limits } => todo!(),
+            ExprKind::Underscore => todo!(),
+            ExprKind::Paren(expr) => todo!(),
+            ExprKind::Path(qualified_self, path) =>{
+                let path_str = path.segments.join("::");
+                match qualified_self {
+                    Some(qual_self) => format!("{}::{}", qual_self, path_str),
+                    None => path_str,
+                }
+            },
+            ExprKind::Break { label, expr } => todo!(),
+            ExprKind::Continue { label } => todo!(),
+            ExprKind::Return(expr) => self.transpile_return(expr),
+            ExprKind::Try(expr) => todo!(),
+            ExprKind::Unwrap(expr) => todo!(),
+            ExprKind::Run(expr) => todo!(),
         }
     }
 
+    fn transpile_statement(&mut self, statement: &Statement) -> String {
+        match &statement.kind {
+            StatementKind::Let(local) => local.to_string(),
+            StatementKind::Item(item) => self.transpile_item(item),
+            StatementKind::Expr(expr) => self.transpile_expr(expr),
+            StatementKind::Semicolon(expr) => self.transpile_expr(expr),    
+            StatementKind::Empty => String::new(),
+        }
+    }
     /// Transpiles the entire program (a list of statements).
-    fn transpile_program(&mut self, statements: &[Box<AstNode>]) -> String {
+    fn transpile_program(&mut self, statements: &[Box<AstElem>]) -> String {
         statements
             .iter()
             .map(|stmt| self.transpile(stmt))
@@ -172,7 +230,7 @@ impl Transpiler {
         name: &str,
         params: &[Param],
         return_type: &Option<Type>,
-        body: &AstNode,
+        body: &AstElem,
     ) -> String {
         let params_str = params
             .iter()
@@ -199,7 +257,7 @@ impl Transpiler {
         name: &str,
         is_mutable: bool,
         type_annotation: &Option<Type>,
-        initializer: &Option<Box<AstNode>>,
+        initializer: &Option<Box<Expr>>,
     ) -> String {
         let mut_keyword = if is_mutable { "mut " } else { "" };
         let type_str = type_annotation
@@ -209,7 +267,7 @@ impl Transpiler {
 
         let init_str = initializer
             .as_ref()
-            .map(|expr| format!(" = {}", self.transpile(expr)))
+            .map(|expr| format!(" = {}", self.transpile_expr(expr)))
             .unwrap_or_default();
 
         format!(
@@ -222,12 +280,16 @@ impl Transpiler {
         )
     }
 
+    fn transpile_pattern(&mut self, pattern: &Pattern) -> String {
+        pattern.to_string()
+    }
+
     /// Transpiles a block of statements.
-    fn transpile_block(&mut self, statements: &[Box<AstNode>]) -> String {
+    fn transpile_block(&mut self, statements: &[Statement]) -> String {
         self.indent_level += 1;
         let body = statements
             .iter()
-            .map(|stmt| format!("{}{}", self.indent(), self.transpile(stmt)))
+            .map(|stmt| format!("{}{}", self.indent(), self.transpile_statement(stmt)))
             .collect::<Vec<_>>()
             .join("\n");
         self.indent_level -= 1;
@@ -235,9 +297,9 @@ impl Transpiler {
     }
 
     /// Transpiles a return statement.
-    fn transpile_return(&mut self, expr: &Option<Box<AstNode>>) -> String {
+    fn transpile_return(&mut self, expr: &Option<Box<Expr>>) -> String {
         match expr {
-            Some(e) => format!("{}return {};", self.indent(), self.transpile(e)),
+            Some(e) => format!("{}return {};", self.indent(), self.transpile_expr(e)),
             None => format!("{}return;", self.indent()),
         }
     }
@@ -245,51 +307,51 @@ impl Transpiler {
     /// Transpiles an if statement.
     fn transpile_if(
         &mut self,
-        condition: &AstNode,
-        then_branch: &AstNode,
-        else_branch: &Option<Box<AstNode>>,
+        condition: &Expr,
+        then_branch: &Expr,
+        else_branch: &Option<Box<Expr>>,
     ) -> String {
         let else_str = else_branch
             .as_ref()
-            .map(|eb| format!(" else {}", self.transpile(eb)))
+            .map(|eb| format!(" else {}", self.transpile_expr(eb)))
             .unwrap_or_default();
 
         format!(
             "{}if {} {} {}",
             self.indent(),
-            self.transpile(condition),
-            self.transpile(then_branch),
+            self.transpile_expr(condition),
+            self.transpile_expr(then_branch),
             else_str
         )
     }
 
     /// Transpiles a while loop.
-    fn transpile_while(&mut self, condition: &AstNode, body: &AstNode) -> String {
+    fn transpile_while(&mut self, condition: &Expr, body: &Expr) -> String {
         format!(
             "{}while {} {}",
             self.indent(),
-            self.transpile(condition),
-            self.transpile(body)
+            self.transpile_expr(condition),
+            self.transpile_expr(body)
         )
     }
 
     /// Transpiles a for loop.
     fn transpile_for(
         &mut self,
-        initializer: &Option<Box<AstNode>>,
-        condition: &Option<Box<AstNode>>,
-        increment: &Option<Box<AstNode>>,
-        body: &AstNode,
+        initializer: &Option<Box<Pattern>>,
+        condition: &Option<Box<Expr>>,
+        increment: &Option<Box<Expr>>,
+        body: &Expr,
     ) -> String {
         let init_str = initializer
             .as_ref()
-            .map_or(String::new(), |init| self.transpile(init));
+            .map_or(String::new(), |init| self.transpile_pattern(init));
         let cond_str = condition
             .as_ref()
-            .map_or(String::new(), |cond| self.transpile(cond));
+            .map_or(String::new(), |cond| self.transpile_expr(cond));
         let incr_str = increment
             .as_ref()
-            .map_or(String::new(), |incr| self.transpile(incr));
+            .map_or(String::new(), |incr| self.transpile_expr(incr));
 
         format!(
             "{}for {}; {}; {} {}",
@@ -297,16 +359,16 @@ impl Transpiler {
             init_str,
             cond_str,
             incr_str,
-            self.transpile(body)
+            self.transpile_expr(body)
         )
     }
 
     /// Transpiles a binary operation.
     fn transpile_binary_op(
         &mut self,
-        left: &AstNode,
+        left: &Expr,
         operator: &BinaryOperator,
-        right: &AstNode,
+        right: &Expr,
     ) -> String {
         let op_str = match operator {
             BinaryOperator::Add => "+",
@@ -328,39 +390,39 @@ impl Transpiler {
 
         format!(
             "({} {} {})",
-            self.transpile(left),
+            self.transpile_expr(left),
             op_str,
-            self.transpile(right)
+            self.transpile_expr(right)
         )
     }
 
     /// Transpiles a unary operation.
-    fn transpile_unary_op(&mut self, operator: &UnaryOperator, operand: &AstNode) -> String {
+    fn transpile_unary_op(&mut self, operator: &UnaryOperator, operand: &Expr) -> String {
         let op_str = match operator {
             UnaryOperator::Negate => "-",
             UnaryOperator::Not => "!",
             UnaryOperator::Increment => todo!(),
         };
 
-        format!("{}({})", op_str, self.transpile(operand))
+        format!("{}({})", op_str, self.transpile_expr(operand))
     }
 
     /// Transpiles a function call.
-    fn transpile_function_call(&mut self, function: &AstNode, arguments: &[&AstNode]) -> String {
+    fn transpile_function_call(&mut self, function: &Expr, arguments: &[&Expr]) -> String {
         let args_str = arguments
             .iter()
-            .map(|arg| self.transpile(arg))
+            .map(|arg| self.transpile_expr(arg))
             .collect::<Vec<_>>()
             .join(", ");
 
-        format!("{}({})", self.transpile(function), args_str)
+        format!("{}({})", self.transpile_expr(function), args_str)
     }
 
     /// Transpiles an array literal.
-    fn transpile_array_literal(&mut self, elements: &ThinVec<Box<AstNode>>) -> String {
+    fn transpile_array_literal(&mut self, elements: &ThinVec<Box<Expr>>) -> String {
         let elements_str = elements
             .iter()
-            .map(|elem| self.transpile(elem))
+            .map(|elem| self.transpile_expr(elem))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -388,7 +450,21 @@ impl Transpiler {
             Type::Path(path) => todo!(),
             Type::SizedArray(inner_type, size) => {
                 let size = match size {
-                    Const(box AstNode::IntLiteral(size)) => size,
+                    Const(box AstElem { id, kind, .. }) => {
+                        if let AstElemKind::Expr(expr) = kind {
+                            if let ExprKind::Literal(lit) = &expr.kind {
+                                if let Literal::Int(value) = lit {
+                                    value
+                                } else {
+                                    todo!()
+                                }
+                            } else {
+                                todo!()
+                            }
+                        } else {
+                            todo!()
+                        }
+                    },
                     _ => todo!(),
                 };
                 format!("[{}; {}]", self.transpile_type(inner_type), size)
@@ -406,7 +482,7 @@ impl Transpiler {
 }
 
 /// Public function to transpile an AST to Rust code.
-pub fn transpile(ast: &AstNode) -> Result<String, TranspilerError> {
+pub fn transpile(ast: &AstElem) -> Result<String, TranspilerError> {
     let mut transpiler = Transpiler::new();
     Ok(transpiler.transpile(ast))
 }

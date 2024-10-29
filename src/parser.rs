@@ -9,7 +9,7 @@ use rand::seq::index;
 use thin_vec::{thin_vec, ThinVec};
 use tracing::{debug, error, field, info, instrument, trace};
 
-use crate::ast::{AstElem, AstElemKind, AstNode, BinaryOperator, BindAttr, Block, Expr, ExprKind, FnAttr, ImplKind, Item, Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P};
+use crate::ast::{AstElem, AstElemKind, BinaryOperator, BindAttr, Block, Expr, ExprKind, FnAttr, ImplKind, Item, Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P};
 use crate::error::ParserError;
 use crate::lexer::token::Token;
 use crate::ast::ty::{ ByRef, FnRetTy, Function, GenericParam, GenericParamKind, Ident, Mutability, Param, Path, Pattern, PatternKind, QualifiedSelf, RefKind, Ty, TyKind, TypeOp};
@@ -434,12 +434,50 @@ impl Parser {
 
     #[instrument]
     fn parse_pattern(&mut self) -> Result<Pattern, ParserError> {
-        todo!()
+        self.parse_pattern_simple()
     }
 
     #[instrument]
     fn parse_pattern_internal(&mut self, expected: Option<Expected>) -> Result<Pattern, ParserError> {
-        todo!()
+        self.parse_pattern_simple()
+    }
+
+    fn parse_pattern_simple(&mut self) -> Result<Pattern, ParserError> {
+        let next = self.peek().map(|t| t.clone());
+        match next {
+            Some(Token::Identifier(name)) => {
+                self.advance();
+                Ok(Pattern::id_simple(name))
+            },
+            Some(tok) => {
+                match tok {
+                    Token::Mut => {
+                        self.advance();
+                        let next = self.peek().map(|t| t.clone());
+                        if let Some(Token::Identifier(name)) = next {
+                            self.advance();
+                            Ok(Pattern::ident(BindAttr { 
+                                mutability: Mutability::Mut, 
+                                ref_kind: None
+                            }, name.clone(), None))
+                        } else {
+                            Err(ParserError::ExpectedToken(
+                                "identifier".to_string(),
+                                format!("{:?}", self.peek()),
+                            ))
+                        }
+                    } 
+                    _ => Err(ParserError::ExpectedToken(
+                        "identifier".to_string(),
+                        format!("{:?}", tok),
+                    )), 
+                }
+            },
+            None => Err(ParserError::ExpectedToken(
+                "identifier".to_string(),
+                format!("{:?}", next),
+            )),
+        }
     }
 
     #[instrument]

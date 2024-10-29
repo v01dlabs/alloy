@@ -12,8 +12,8 @@ use crate::{
         self, ty::{
             AttrItem, Const, FloatKind, FnRetTy, Ident, IntKind, Mutability, PatField, Path,
             Pattern, PatternKind, RefKind, Ty, TyKind, TypeOp, UintKind,
-        }, AstElem, AstElemKind,
-        AstNode, BinaryOperator, BindAttr, Statement, StatementKind, Item, ItemKind, Expr, ExprKind, UnaryOperator, Visibility, P,
+        }, 
+        AstElem, AstElemKind, BinaryOperator, BindAttr, Statement, StatementKind, Item, ItemKind, Expr, ExprKind, UnaryOperator, Visibility, P,
     },
     error::TypeError,
 };

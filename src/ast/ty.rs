@@ -3,7 +3,11 @@ use std::{fmt, sync::Arc};
 use thin_vec::{thin_vec, ThinVec};
 
 use crate::{
-    ast::{AstElem, AstNode, BindAttr, WithClauseItem}, lexer::token::Token, type_checker::Type}
+    ast::{
+        AstElem, BindAttr,
+    }, 
+    lexer::token::Token, 
+    type_checker::Type}
 ;
 
 
@@ -603,7 +607,7 @@ pub enum FloatKind {
 impl fmt::Display for IntKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IntKind::Int => write!(f, "i64"),
+            IntKind::Int => write!(f, "i32"),
             IntKind::I8 => write!(f, "i8"),
             IntKind::I16 => write!(f, "i16"),
             IntKind::I32 => write!(f, "i32"),
