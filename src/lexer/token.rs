@@ -27,7 +27,7 @@ pub enum Token {
     Where,
 
     Await,
-
+    Ref,
     Struct, // ? unsure if keeping
     Enum,   // ? unsure if keeping
     Union,
@@ -79,6 +79,7 @@ pub enum Token {
     Pipe,
     Comma,
     Dot,
+    Underscore,
     QuestionMark,
     ExclamationPt,
     Colon,
@@ -110,6 +111,7 @@ impl Token {
                     | Token::While
                     | Token::Guard
                     | Token::Match
+                    | Token::Do
             )
     }
 
@@ -146,6 +148,7 @@ impl Token {
             | Token::Pipe
             | Token::Comma
             | Token::Dot
+            | Token::Underscore
             | Token::QuestionMark
             | Token::ExclamationPt
             | Token::Colon
@@ -244,6 +247,7 @@ impl Token {
             | Token::Loop
             | Token::For
             | Token::Match
+            | Token::Do
             | Token::Guard
             | Token::Mut
             | Token::Async
@@ -258,6 +262,7 @@ impl Token {
             | Token::Union
             | Token::Type
             | Token::Effect
+            | Token::Run
             | Token::Trait
             | Token::Handler
             | Token::Impl => true,
@@ -326,6 +331,7 @@ impl fmt::Display for Token {
             Token::Pipe => f.write_str("|"),
             Token::Comma => f.write_str(","),
             Token::Dot => f.write_str("."),
+            Token::Underscore => f.write_str("_"),
             Token::QuestionMark => f.write_str("?"),
             Token::ExclamationPt => f.write_str("!"),
             Token::Colon => f.write_str(":"),
@@ -346,6 +352,7 @@ impl fmt::Display for Token {
             Token::Pipeline => f.write_str("|>"),
             Token::Increment => f.write_str("++"),
             Token::Decrement => f.write_str("--"),
+            Token::Ref => f.write_str("ref"),
         }
     }
 }

@@ -162,6 +162,7 @@ impl<'a> Lexer<'a> {
             "in" => Token::In,
             "async" => Token::Async,
             "await" => Token::Await,
+            "ref" => Token::Ref,
             "true" => Token::BoolLiteral(true),
             "false" => Token::BoolLiteral(false),
             "match" => Token::Match,

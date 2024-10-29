@@ -249,6 +249,7 @@ impl TypeChecker {
             ExprKind::Try(expr) => todo!(),
             ExprKind::Unwrap(expr) => todo!(),
             ExprKind::Run(expr) => todo!(),
+            ExprKind::Do(expr) => todo!(),
         }
     }
 

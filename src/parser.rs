@@ -4,25 +4,21 @@
 //! and constructing an Abstract Syntax Tree (AST) that represents the structure
 //! of an Alloy program.
 
-use futures::stream::Next;
-use rand::seq::index;
 use thin_vec::{thin_vec, ThinVec};
-use tracing::{debug, error, field, info, instrument, trace};
+use tracing::{debug, error, instrument, trace};
 
 use crate::ast::ty::{
-    ByRef, FnRetTy, Function, GenericParam, GenericParamKind, Ident, Mutability, Param, Path,
-    Pattern, PatternKind, QualifiedSelf, RefKind, Ty, TyKind, TypeOp,
+    ByRef, FnRetTy, Function, GenericParam, GenericParamKind, Ident, Mutability, Param, PatField,
+    Path, Pattern, PatternKind, QualifiedSelf, RefKind, Ty, TyKind, TypeOp,
 };
 use crate::ast::{
-    AstElem, AstElemKind, BinaryOperator, BindAttr, Block, Expr, ExprKind, FnAttr, ImplKind, Item,
-    Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P,
+    Arm, AstElem, AstElemKind, AstNode, BinaryOperator, BindAttr, Block, Expr, ExprKind, FnAttr,
+    ImplKind, Item, Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P,
 };
 use crate::error::ParserError;
 use crate::lexer::token::Token;
-use core::f32::consts::E;
-use itertools::{Itertools, MultiPeek};
-use std::iter::Peekable;
-use std::vec::IntoIter;
+use itertools::Itertools;
+use std::{iter::Peekable, sync::Arc, vec::IntoIter};
 
 /// The Parser struct holds the state during parsing.
 #[derive(Debug)]
@@ -477,11 +473,6 @@ impl Parser {
     ) -> Result<PatternKind, ParserError> {
         let fields = self.parse_paren_comma_pattern()?;
         Ok(PatternKind::TupleStruct(qual_self, path, fields))
-    }
-
-    #[instrument]
-    fn parse_pattern(&mut self) -> Result<Pattern, ParserError> {
-        self.parse_pattern_simple()
     }
 
     #[instrument]
@@ -1142,6 +1133,8 @@ impl Parser {
             Some(Token::If) => self.parse_if_statement(),
             Some(Token::While) => self.parse_while_statement(),
             Some(Token::For) => self.parse_for_statement(),
+            Some(Token::Match) => self.parse_match_statement(),
+            Some(Token::Do) => self.parse_do_statement(),
             Some(Token::Guard) => self.parse_guard_statement(),
             Some(Token::Return) => self.parse_return_statement(),
             Some(Token::LBrace) => Ok(P(Statement::expr(P(Expr::block(
@@ -1233,6 +1226,259 @@ impl Parser {
             P(Expr::block(body, None)),
             None,
         )))))
+    }
+
+    /// Parses a match statement.
+    #[instrument]
+    fn parse_match_statement(&mut self) -> Result<Box<Statement>, ParserError> {
+        self.consume(&Token::Match)?;
+        let expr = self.parse_expression(Precedence::None)?;
+
+        self.consume(&Token::LBrace)?;
+        let mut arms = ThinVec::new();
+
+        while !self.check(&Token::RBrace) {
+            self.consume_newlines();
+            if self.check(&Token::RBrace) {
+                break;
+            }
+
+            // Parse pattern
+            let pattern = if self.check(&Token::Underscore) {
+                self.advance();
+                Pattern::id_simple("_".to_string())
+            } else {
+                self.parse_pattern()?
+            };
+
+            // Parse optional guard
+            let guard = if self.consume_if(&Token::If) {
+                Some(self.parse_expression(Precedence::None)?)
+            } else {
+                None
+            };
+
+            self.consume(&Token::Arrow)?;
+
+            let body = self.parse_expression(Precedence::None)?;
+
+            arms.push(Arm {
+                attrs: ThinVec::new(),
+                pat: P(pattern),
+                guard: guard.map(|g| g),
+                body: Some(body),
+                tokens: Arc::new(ThinVec::new()),
+            });
+
+            // Allow trailing comma
+            self.consume_if(&Token::Comma);
+            self.consume_newlines();
+        }
+
+        self.consume(&Token::RBrace)?;
+
+        Ok(P(Statement::expr(P(Expr {
+            kind: ExprKind::Match {
+                expr: P(*expr),
+                arms,
+            },
+            tokens: Arc::new(ThinVec::new()),
+        }))))
+    }
+
+    #[instrument]
+    fn parse_pattern(&mut self) -> Result<Pattern, ParserError> {
+        let next = self
+            .peek()
+            .ok_or_else(|| ParserError::UnexpectedToken("Expected pattern".to_string()))?
+            .clone();
+
+        match next {
+            Token::Identifier(ref name) => {
+                self.advance();
+                // Store the next token before potential recursive calls
+                let peek_token = self.peek().cloned();
+
+                match peek_token {
+                    Some(Token::LParen) => {
+                        self.advance(); // Consume LParen
+                        let mut patterns = ThinVec::new();
+
+                        if !self.check(&Token::RParen) {
+                            loop {
+                                patterns.push(P(self.parse_pattern()?));
+
+                                if !self.consume_if(&Token::Comma) {
+                                    break;
+                                }
+
+                                if self.check(&Token::RParen) {
+                                    break;
+                                }
+                            }
+                        }
+
+                        self.consume(&Token::RParen)?;
+                        Ok(Pattern {
+                            kind: PatternKind::TupleStruct(
+                                None,
+                                Path::ident(name.clone()),
+                                patterns,
+                            ),
+                            tokens: Arc::new(ThinVec::new()),
+                        })
+                    }
+                    Some(Token::LBrace) => {
+                        self.advance(); // Consume LBrace
+                        let mut fields = ThinVec::new();
+
+                        if !self.check(&Token::RBrace) {
+                            loop {
+                                // Parse field name
+                                let field_name = match self.advance() {
+                                    Some(Token::Identifier(field_name)) => field_name,
+                                    _ => {
+                                        return Err(ParserError::ExpectedToken(
+                                            "field name".to_string(),
+                                            format!("{:?}", self.peek()),
+                                        ))
+                                    }
+                                };
+
+                                let is_shorthand = !self.check(&Token::Colon);
+                                if !is_shorthand {
+                                    self.advance(); // Consume colon
+                                }
+
+                                let pattern = if is_shorthand {
+                                    Pattern::id_simple(field_name.clone())
+                                } else {
+                                    self.parse_pattern()?
+                                };
+
+                                fields.push(PatField {
+                                    ident: field_name,
+                                    pat: P(pattern),
+                                    is_shorthand,
+                                    attrs: ThinVec::new(),
+                                    is_placeholder: false,
+                                });
+
+                                if !self.consume_if(&Token::Comma) {
+                                    break;
+                                }
+
+                                if self.check(&Token::RBrace) {
+                                    break;
+                                }
+                            }
+                        }
+
+                        self.consume(&Token::RBrace)?;
+                        Ok(Pattern {
+                            kind: PatternKind::Struct(None, Path::ident(name.clone()), fields),
+                            tokens: Arc::new(ThinVec::new()),
+                        })
+                    }
+                    _ => Ok(Pattern::id_simple(name.clone())),
+                }
+            }
+            Token::Underscore => {
+                self.advance();
+                Ok(Pattern {
+                    kind: PatternKind::Wildcard,
+                    tokens: Arc::new(ThinVec::new()),
+                })
+            }
+            Token::LParen => {
+                self.advance();
+                let mut patterns = ThinVec::new();
+
+                if !self.check(&Token::RParen) {
+                    loop {
+                        patterns.push(P(self.parse_pattern()?));
+
+                        if !self.consume_if(&Token::Comma) {
+                            break;
+                        }
+
+                        if self.check(&Token::RParen) {
+                            break;
+                        }
+                    }
+                }
+
+                self.consume(&Token::RParen)?;
+                Ok(Pattern {
+                    kind: PatternKind::Tuple(patterns),
+                    tokens: Arc::new(ThinVec::new()),
+                })
+            }
+            Token::Mut => {
+                self.advance();
+                let inner_pat = self.parse_pattern()?;
+                match &inner_pat.kind {
+                    PatternKind::Ident(_, name, _) => Ok(Pattern {
+                        kind: PatternKind::Ident(
+                            BindAttr::new(true, None),
+                            name.clone(),
+                            Some(P(inner_pat)),
+                        ),
+                        tokens: Arc::new(ThinVec::new()),
+                    }),
+                    _ => Err(ParserError::ExpectedToken(
+                        "identifier".to_string(),
+                        format!("{:?}", inner_pat),
+                    )),
+                }
+            }
+            Token::Pipe => {
+                self.advance();
+                let mut patterns = ThinVec::new();
+
+                loop {
+                    patterns.push(P(self.parse_pattern()?));
+
+                    if !self.consume_if(&Token::Pipe) {
+                        break;
+                    }
+                }
+
+                Ok(Pattern {
+                    kind: PatternKind::Or(patterns),
+                    tokens: Arc::new(ThinVec::new()),
+                })
+            }
+            Token::Ref => {
+                self.advance();
+                let is_mut = self.consume_if(&Token::Mut);
+                let inner_pat = self.parse_pattern()?;
+                Ok(Pattern {
+                    kind: PatternKind::Ref(
+                        P(inner_pat),
+                        RefKind::ThreadLocal(if is_mut {
+                            Mutability::Mut
+                        } else {
+                            Mutability::Not
+                        }),
+                    ),
+                    tokens: Arc::new(ThinVec::new()),
+                })
+            }
+            _ => Err(ParserError::UnexpectedToken(format!(
+                "Expected pattern, got {:?}",
+                next
+            ))),
+        }
+    }
+    /// Parses a do statement.
+    #[instrument]
+    fn parse_do_statement(&mut self) -> Result<Box<Statement>, ParserError> {
+        self.consume(&Token::Do)?;
+        let body = self.parse_block().inspect_err(|e| {
+            error!(%e);
+        })?;
+        Ok(P(Statement::expr(P(Expr::block(body, None)))))
     }
 
     /// Parses a guard statement.

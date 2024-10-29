@@ -464,7 +464,14 @@ impl fmt::Display for Expr {
                 }
                 Ok(())
             }
-            ExprKind::Match { expr, arms } => todo!(),
+            ExprKind::Match { expr, arms } => {
+                write!(f, "match {expr} {{")?;
+                for arm in arms {
+                    write!(f, "\n    {arm},")?;
+                }
+                write!(f, "\n}}")
+            }
+            ExprKind::Do(expr) => write!(f, "do {}", expr),
             ExprKind::Block(block, _) => write!(f, "{block}"),
             ExprKind::Await(expr) => todo!(),
             ExprKind::Assign { lhs, rhs } => todo!(),
@@ -931,6 +938,7 @@ pub enum ExprKind {
         expr: Box<Expr>,
         arms: ThinVec<Arm>,
     },
+    Do(Box<Expr>),
     Block(Box<Block>, Option<String>),
     Await(Box<Expr>),
     Assign {
@@ -1575,6 +1583,22 @@ pub struct Arm {
     pub body: Option<Box<Expr>>,
     pub tokens: Arc<ThinVec<Token>>,
 }
+
+impl fmt::Display for Arm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.pat)?;
+        if let Some(ref guard) = self.guard {
+            write!(f, " if {}", guard)?;
+        }
+        write!(f, " => ")?;
+        if let Some(ref body) = self.body {
+            write!(f, "{}", body)
+        } else {
+            write!(f, "()")
+        }
+    }
+}
+
 /// Represents binary operators in Alloy.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOperator {
