@@ -17,7 +17,7 @@ pub enum Token {
     Return,
     Fn,
     If,
-    
+
     Else,
     While,
     Loop,
@@ -25,7 +25,7 @@ pub enum Token {
     For,
     Match,
     Guard,
-    
+
     Mut,
     Async,
     Shared,
@@ -33,11 +33,11 @@ pub enum Token {
     In,
     With,
     Where,
-    
+
     Await,
-    
+
     Struct, // ? unsure if keeping
-    Enum, // ? unsure if keeping
+    Enum,   // ? unsure if keeping
     Union,
     Type,
     Effect,
@@ -94,7 +94,6 @@ pub enum Token {
     Arrow,
     Semicolon,
     Newline,
-    
 
     // Special
     Eof,
@@ -129,9 +128,9 @@ impl Token {
                 "shared" => &Token::Shared,
                 "default" => &Token::Default,
                 "effect" => &Token::Effect,
-                _ => self
+                _ => self,
             },
-            _ => self
+            _ => self,
         }
     }
 }
@@ -427,11 +426,11 @@ impl<'a> Lexer<'a> {
                     } else {
                         Ok(Token::Colon)
                     }
-                },
+                }
                 ';' => Ok(Token::Semicolon),
                 '?' => Ok(Token::QuestionMark),
                 '\n' => Ok(Token::Newline),
-                
+
                 _ => Err(LexerError::UnexpectedChar(
                     c,
                     LexerError::to_miette_span(&self.loc()),

@@ -1,17 +1,18 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{ty::{FnRetTy, Function, GenericParam, GenericParamKind, Ty, TyKind}, AstNode, BinaryOperator, FnAttr, Precedence, UnaryOperator, WithClauseItem, P},
+    ast::{
+        ty::{FnRetTy, Function, GenericParam, GenericParamKind, Ty, TyKind},
+        AstNode, BinaryOperator, FnAttr, Precedence, UnaryOperator, WithClauseItem,
+    },
     error::ParserError,
     lexer::{Lexer, Token},
-    parser::{parse, Parser},
+    parser::Parser,
 };
 use thin_vec::thin_vec;
-use tracing_subscriber;
 
 fn init_tracing() {
-    let format = tracing_subscriber::fmt::format()
-        .pretty();
+    let format = tracing_subscriber::fmt::format().pretty();
 
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
@@ -20,7 +21,6 @@ fn init_tracing() {
         .with_ansi(true)
         .try_init();
 }
-
 
 // Helper function to create a parser from a vector of tokens
 fn create_parser(tokens: Vec<Token>) -> Parser {
@@ -66,8 +66,8 @@ fn test_parse_unary_operator() {
     let mut parser = create_parser(tokens);
     let result = parser.parse_declaration().unwrap();
     assert!(matches!(result,
-        box AstNode::UnaryOperation { 
-            operator: UnaryOperator::Not, operand: box AstNode::Identifier(x) 
+        box AstNode::UnaryOperation {
+            operator: UnaryOperator::Not, operand: box AstNode::Identifier(x)
         } if x == "x"
     ));
 }
@@ -394,20 +394,22 @@ fn test_basic_effect() {
     if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(declarations.len(), 1);
         let declaration = declarations.first().unwrap().clone();
-        assert!(matches!(declaration,
-            box AstNode::EffectDeclaration { .. } 
-        ));
+        assert!(matches!(declaration, box AstNode::EffectDeclaration { .. }));
         if let box AstNode::EffectDeclaration { name, members, .. } = declaration {
             assert_eq!(name, "IO");
             assert_eq!(members.len(), 2);
-            assert!(matches!(members[0].clone(), box AstNode::FunctionDeclaration { name, 
-                function: Function { inputs, output, .. }, .. } if name == "read_line" && inputs.len() == 0 
-                && matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "String")));
-            assert!(matches!(members[1].clone(), box AstNode::FunctionDeclaration { name, 
-                function: Function { inputs, output, .. }, .. } if name == "print" && inputs.len() == 1 
-                && matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Tuple(t)}) if t.len() == 0)));
+            assert!(
+                matches!(members[0].clone(), box AstNode::FunctionDeclaration { name,
+                function: Function { inputs, output, .. }, .. } if name == "read_line" && inputs.is_empty()
+                && matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "String"))
+            );
+            assert!(
+                matches!(members[1].clone(), box AstNode::FunctionDeclaration { name,
+                function: Function { inputs, output, .. }, .. } if name == "print" && inputs.len() == 1
+                && matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Tuple(t)}) if t.is_empty()))
+            );
         }
-    } else {        
+    } else {
         panic!("Expected EffectDeclaration, got {:?}", result);
     }
 }
@@ -431,22 +433,18 @@ fn test_struct_decl() {
     if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(declarations.len(), 1);
         let declaration = declarations.first().unwrap().clone();
-        assert!(matches!(declaration,
-            box AstNode::StructDeclaration { .. } 
-        ));
+        assert!(matches!(declaration, box AstNode::StructDeclaration { .. }));
         if let box AstNode::StructDeclaration { name, members, .. } = declaration {
             assert_eq!(name, "List");
             assert_eq!(members.len(), 2);
-            assert!(matches!(members[0].clone(), 
-                box AstNode::VariableDeclaration { name, 
-                    type_annotation: Some(box Ty { kind: TyKind::Generic(type_name,..), .. }), .. 
-                } if name == "head" && type_name == "Option")
-            );
-            assert!(matches!(members[1].clone(), 
-                box AstNode::VariableDeclaration { name, 
-                    type_annotation: Some(box Ty { kind: TyKind::Generic(type_name, ..), .. }), .. 
-                } if name == "tail" && type_name == "Option")
-            );
+            assert!(matches!(members[0].clone(),
+                box AstNode::VariableDeclaration { name,
+                    type_annotation: Some(box Ty { kind: TyKind::Generic(type_name,..), .. }), ..
+                } if name == "head" && type_name == "Option"));
+            assert!(matches!(members[1].clone(),
+                box AstNode::VariableDeclaration { name,
+                    type_annotation: Some(box Ty { kind: TyKind::Generic(type_name, ..), .. }), ..
+                } if name == "tail" && type_name == "Option"));
             // TODO: verify the full generic type
         }
     }
@@ -574,7 +572,7 @@ fn test_parse_multi_pipeline() {
     let input = r#"
         let processed = data
             |> map { x in x * 2 }
-            |> filter { x in  x > 0 } 
+            |> filter { x in  x > 0 }
             |> fold(0) { acc, x in acc + x }
     "#;
     let tokens = Lexer::tokenize(input).unwrap();
@@ -590,7 +588,10 @@ fn test_parse_multi_pipeline() {
         assert_eq!(declarations.len(), 1);
         let declaration = declarations.first().unwrap().clone();
         if let box AstNode::PipelineOperation { prev, next, .. } = declaration {
-            assert!(matches!(prev.clone(), box AstNode::PipelineOperation { .. }));
+            assert!(matches!(
+                prev.clone(),
+                box AstNode::PipelineOperation { .. }
+            ));
             assert!(matches!(next.clone(), box AstNode::TrailingClosure { .. }));
         } else {
             panic!("Expected PipelineOperation, got {:?}", declaration);
@@ -620,12 +621,16 @@ fn test_simple_impl_block() {
     if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(declarations.len(), 1);
         let declaration = declarations.first().unwrap().clone();
-        assert!(matches!(declaration,
-            box AstNode::ImplDeclaration { .. } 
-        ));
-        if let box AstNode::ImplDeclaration { name, generic_params, 
-            kind, target, target_generic_params, 
-            where_clause, bounds, members 
+        assert!(matches!(declaration, box AstNode::ImplDeclaration { .. }));
+        if let box AstNode::ImplDeclaration {
+            name,
+            generic_params,
+            kind: _,
+            target,
+            target_generic_params,
+            where_clause,
+            bounds,
+            members,
         } = declaration
         {
             assert_eq!(name, "Display");
@@ -635,15 +640,15 @@ fn test_simple_impl_block() {
             assert!(where_clause.is_empty());
             assert!(bounds.is_none());
             assert_eq!(members.len(), 1);
-            assert!(matches!(members[0].clone(), 
-                box AstNode::FunctionDeclaration { name, 
-                    function: Function { inputs, output, .. }, .. } if name == "display" && inputs.len() == 1 
-                && matches!(
-                    output.clone(), 
-                    FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "String"
-                )));
+            assert!(matches!(members[0].clone(),
+            box AstNode::FunctionDeclaration { name,
+                function: Function { inputs, output, .. }, .. } if name == "display" && inputs.len() == 1
+            && matches!(
+                output.clone(),
+                FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "String"
+            )));
         }
-    } else {        
+    } else {
         panic!("Expected Program, got {:?}", result);
     }
 }
@@ -663,29 +668,37 @@ fn test_with_clause_simple() {
         "Failed to parse with clause: {}",
         result.unwrap_err()
     );
-    
+
     if let Ok(box AstNode::Program(declarations)) = result {
         assert_eq!(declarations.len(), 1);
         let declaration = declarations.first().unwrap().clone();
         assert!(matches!(declaration.clone(),
-            box AstNode::FunctionDeclaration { name, attrs: _, function: Function { inputs, .. }, .. } 
-            if name == "generate_id" && inputs.len() == 0
+            box AstNode::FunctionDeclaration { name, attrs: _, function: Function { inputs, .. }, .. }
+            if name == "generate_id" && inputs.is_empty()
         ));
         if let box AstNode::FunctionDeclaration {
-             name: _, attrs, function: Function { inputs: _, output, .. }, .. 
-        } = declaration.clone() {
-            assert!(matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "i32"));
+            name: _,
+            attrs,
+            function: Function {
+                inputs: _, output, ..
+            },
+            ..
+        } = declaration.clone()
+        {
+            assert!(
+                matches!(output.clone(), FnRetTy::Ty(box Ty { kind: TyKind::Simple(type_name), .. }) if type_name == "i32")
+            );
             assert_eq!(attrs.len(), 1);
-            assert!(matches!(attrs[0].clone(), 
-                FnAttr { is_async, is_shared, effects } if is_async == false && is_shared == false && effects.len() == 1 
-                && matches!(effects[0].clone(), 
+            assert!(matches!(attrs[0].clone(),
+                FnAttr { is_async, is_shared, effects } if !is_async && !is_shared && effects.len() == 1
+                && matches!(effects[0].clone(),
                     box WithClauseItem::Generic(GenericParam { name, kind: GenericParamKind::Type(None), .. }) if name == "Random"
                 )
             ));
         } else {
             panic!("Expected FunctionDeclaration, got {:?}", declaration);
         }
-    } else {        
+    } else {
         panic!("Expected Program, got {:?}", result);
     }
 }

@@ -1,11 +1,10 @@
-use alloy::type_checker::typecheck;
 use alloy::error::TypeError;
+use alloy::type_checker::typecheck;
 use alloy::Lexer;
 use alloy::Parser;
 
 fn init_tracing() {
-    let format = tracing_subscriber::fmt::format()
-        .pretty();
+    let format = tracing_subscriber::fmt::format().pretty();
 
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)

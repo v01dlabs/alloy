@@ -1,9 +1,9 @@
 use thin_vec::ThinVec;
 
 use crate::{
-    ast::{AstNode, WithClauseItem}, type_checker::Type}
-;
-
+    ast::{AstNode, WithClauseItem},
+    type_checker::Type,
+};
 
 pub type Ident = String;
 
@@ -62,7 +62,6 @@ pub struct Function {
     pub inputs: ThinVec<Param>,
     pub output: FnRetTy,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParam {
@@ -223,4 +222,3 @@ pub enum RefKind {
     ThreadLocal(Mutability),
     Sync(Mutability),
 }
-

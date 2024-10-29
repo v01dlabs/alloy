@@ -8,10 +8,15 @@ use rand::seq::index;
 use thin_vec::{thin_vec, ThinVec};
 use tracing::{debug, error, info, instrument, trace};
 
-use crate::ast::{AstNode, BinaryOperator, BindAttr, FnAttr, ImplKind, Precedence, UnaryOperator, WithClauseItem, P};
+use crate::ast::ty::{
+    FnRetTy, Function, GenericParam, GenericParamKind, Ident, Param, Ty, TyKind, TypeOp,
+};
+use crate::ast::{
+    AstNode, BinaryOperator, BindAttr, FnAttr, ImplKind, Precedence, UnaryOperator, WithClauseItem,
+    P,
+};
 use crate::error::ParserError;
 use crate::lexer::Token;
-use crate::ast::ty::{ FnRetTy, Function, GenericParam, GenericParamKind, Ident, Param, Ty, TyKind, TypeOp};
 use itertools::{Itertools, MultiPeek};
 use std::iter::Peekable;
 use std::vec::IntoIter;
@@ -55,7 +60,7 @@ impl Parser {
     }
 
     /// Consumes the next token if it matches the expected token.
-    
+
     fn consume_if(&mut self, expected: &Token) -> bool {
         if self.check(expected) {
             self.advance();
@@ -67,7 +72,7 @@ impl Parser {
 
     fn store_node(&mut self, node: Box<AstNode>) -> Box<AstNode> {
         self.last_node.replace(node.clone());
-        node    
+        node
     }
 
     /// Consumes the expected token or returns an error.
@@ -103,7 +108,7 @@ impl Parser {
         while let Some(t) = iter.peek() {
             if t == expected {
                 return true;
-            } 
+            }
             if t.is_block_end() || t.is_block_start() && t != &Token::LBrace {
                 return false;
             }
@@ -111,7 +116,7 @@ impl Parser {
         false
     }
 
-    fn consume_any<'a>(&'a mut self, options: &'a[&'a Token]) -> Result<&'a Token, ParserError> {
+    fn consume_any<'a>(&'a mut self, options: &'a [&'a Token]) -> Result<&'a Token, ParserError> {
         let next = self.peek();
         for test in options.iter() {
             if next == Some(test) {
@@ -119,7 +124,10 @@ impl Parser {
                 return Ok(test);
             }
         }
-        Err(ParserError::ExpectedToken(format!("one of {:?}", options), format!("{:?}", next)))
+        Err(ParserError::ExpectedToken(
+            format!("one of {:?}", options),
+            format!("{:?}", next),
+        ))
     }
 
     fn consume_newlines(&mut self) {
@@ -149,7 +157,7 @@ impl Parser {
                             }
                             _ => declarations.push(decl),
                         }
-                    },
+                    }
                     Err(e) => return Err(e),
                 }
             }
@@ -206,7 +214,7 @@ impl Parser {
                         t
                     )))
                 }
-            },
+            }
             t => {
                 debug!("primary {:?}, tokens {:?}", t, self.tokens);
                 Err(ParserError::UnexpectedToken(format!(
@@ -249,7 +257,6 @@ impl Parser {
         // Check if the declaration is followed by a newline or EOF
         let next_token = self.peek();
         if !matches!(next_token, Some(&Token::Newline) | None | Some(&Token::Eof)) {
-            
             return Err(ParserError::ExpectedToken(
                 "newline".to_string(),
                 format!("{:?}", next_token.unwrap_or(&Token::Eof)),
@@ -271,12 +278,13 @@ impl Parser {
     #[instrument]
     fn parse_struct_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Struct)?;
-        let (name, generic_params) = self.parse_delc_start()
-            .inspect_err(|e|{error!(%e);})?;
-        self.consume_newlines(); 
+        let (name, generic_params) = self.parse_delc_start().inspect_err(|e| {
+            error!(%e);
+        })?;
+        self.consume_newlines();
         let mut members = ThinVec::new();
         let next = self.peek();
-        
+
         if next == Some(&Token::LParen) {
             debug!("parsing tuple struct");
             self.parse_tuple_struct_decl(name, generic_params)
@@ -296,7 +304,9 @@ impl Parser {
                 if self.consume_if(&Token::RBrace) {
                     break;
                 }
-                members.push(self.parse_member(ImplKind::Struct).inspect_err(|e|{error!(%e);})?);
+                members.push(self.parse_member(ImplKind::Struct).inspect_err(|e| {
+                    error!(%e);
+                })?);
             }
             Ok(P(AstNode::StructDeclaration {
                 name,
@@ -305,11 +315,14 @@ impl Parser {
                 members,
             }))
         }
-
     }
 
     #[instrument]
-    fn parse_tuple_struct_decl(&mut self, name: Ident, generic_params: ThinVec<GenericParam>) -> Result<Box<AstNode>, ParserError> {
+    fn parse_tuple_struct_decl(
+        &mut self,
+        name: Ident,
+        generic_params: ThinVec<GenericParam>,
+    ) -> Result<Box<AstNode>, ParserError> {
         let mut params = ThinVec::new();
         let mut index = 0;
         self.consume(&Token::LParen)?;
@@ -318,8 +331,9 @@ impl Parser {
             // TODO: need to add visibility here and elsewhere
             let name = format!("{}", index);
             index += 1;
-            let type_annotation = self.parse_type_annotation()
-                .inspect_err(|e|{error!(%e);})?;
+            let type_annotation = self.parse_type_annotation().inspect_err(|e| {
+                error!(%e);
+            })?;
             params.push(P(AstNode::VariableDeclaration {
                 name,
                 attrs: ThinVec::new(),
@@ -341,8 +355,9 @@ impl Parser {
     #[instrument]
     fn parse_enum_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Enum)?;
-        let (name, generic_params) = self.parse_delc_start()
-            .inspect_err(|e|{error!(%e);})?;
+        let (name, generic_params) = self.parse_delc_start().inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume_newlines();
         let mut variants = ThinVec::new();
         self.consume(&Token::LBrace)?;
@@ -351,7 +366,9 @@ impl Parser {
             if self.consume_if(&Token::RBrace) {
                 break;
             }
-            variants.push(self.parse_enum_variant().inspect_err(|e|{error!(%e);})?);
+            variants.push(self.parse_enum_variant().inspect_err(|e| {
+                error!(%e);
+            })?);
         }
         Ok(P(AstNode::EnumDeclaration {
             name,
@@ -364,14 +381,17 @@ impl Parser {
     #[instrument]
     fn parse_trait_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Trait)?;
-        let (name, generic_params) = self.parse_delc_start()
-            .inspect_err(|e|{error!(%e);})?;
+        let (name, generic_params) = self.parse_delc_start().inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume_newlines();
         let mut bounds = None;
         if self.consume_if(&Token::Colon) || self.consume_if(&Token::Assign) {
-            bounds = Some(self.parse_type_op().inspect_err(|e|{error!(%e);})?);
+            bounds = Some(self.parse_type_op().inspect_err(|e| {
+                error!(%e);
+            })?);
         }
-        if self.is_marker()? {  
+        if self.is_marker()? {
             return Ok(P(AstNode::TraitDeclaration {
                 name,
                 generic_params,
@@ -387,8 +407,9 @@ impl Parser {
             if self.consume_if(&Token::RBrace) {
                 break;
             }
-            members.push(self.parse_member(ImplKind::Trait)
-                .inspect_err(|e|{error!(%e);})?);
+            members.push(self.parse_member(ImplKind::Trait).inspect_err(|e| {
+                error!(%e);
+            })?);
         }
         Ok(P(AstNode::TraitDeclaration {
             name,
@@ -402,8 +423,9 @@ impl Parser {
     #[instrument]
     fn parse_union_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Union)?;
-        let (name, generic_params) = self.parse_delc_start()
-                .inspect_err(|e|{error!(%e);})?;
+        let (name, generic_params) = self.parse_delc_start().inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume_newlines();
         todo!()
     }
@@ -412,8 +434,9 @@ impl Parser {
     fn parse_effect_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
         print!("parsing effect decl: ");
         self.consume(&Token::Effect)?;
-        let (name, generic_params) = self.parse_delc_start()
-            .inspect_err(|e|{error!(%e);})?;
+        let (name, generic_params) = self.parse_delc_start().inspect_err(|e| {
+            error!(%e);
+        })?;
         println!("{:?}[{:?}]", name, generic_params);
         self.consume_newlines();
         let mut bounds = None;
@@ -421,7 +444,7 @@ impl Parser {
             bounds = Some(self.parse_type_op()?);
         }
         let mut members = ThinVec::new();
-        if self.is_marker()? {  
+        if self.is_marker()? {
             return Ok(P(AstNode::EffectDeclaration {
                 name,
                 generic_params,
@@ -436,8 +459,9 @@ impl Parser {
             if self.consume_if(&Token::RBrace) {
                 break;
             }
-            members.push(self.parse_effect_member()
-                .inspect_err(|e|{error!(%e);})?);
+            members.push(self.parse_effect_member().inspect_err(|e| {
+                error!(%e);
+            })?);
         }
         Ok(P(AstNode::EffectDeclaration {
             name,
@@ -452,20 +476,23 @@ impl Parser {
     fn parse_handler_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Handler)?;
         // do we need additional generics here?
-        let (name, generic_params) = self.parse_delc_start()
-            .inspect_err(|e|{error!(%e);})?;
+        let (name, generic_params) = self.parse_delc_start().inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume_newlines();
         self.consume(&Token::For)?;
-        let (target, target_generic_params) = self.parse_delc_start()
-            .inspect_err(|e|{error!(%e);})?;
+        let (target, target_generic_params) = self.parse_delc_start().inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume_newlines();
         let mut bounds = None;
         if self.consume_if(&Token::Colon) {
-            bounds = Some(self.parse_type_op()
-                .inspect_err(|e|{error!(%e);})?);
+            bounds = Some(self.parse_type_op().inspect_err(|e| {
+                error!(%e);
+            })?);
         }
         let mut members = ThinVec::new();
-        if self.is_marker()? {  
+        if self.is_marker()? {
             return Ok(P(AstNode::ImplDeclaration {
                 name,
                 generic_params,
@@ -483,8 +510,9 @@ impl Parser {
             if self.consume_if(&Token::RBrace) {
                 break;
             }
-            members.push(self.parse_member(ImplKind::Handler)
-                .inspect_err(|e|{error!(%e);})?);
+            members.push(self.parse_member(ImplKind::Handler).inspect_err(|e| {
+                error!(%e);
+            })?);
         }
         Ok(P(AstNode::ImplDeclaration {
             name,
@@ -504,28 +532,32 @@ impl Parser {
     fn parse_impl_decl(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Impl)?;
         // do we need additional generics here?
-        let (name, generic_params) = self.parse_delc_start()
-            .inspect_err(|e|{error!(%e);})?;
+        let (name, generic_params) = self.parse_delc_start().inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume_newlines();
         let kind = if self.consume_if(&Token::For) {
             ImplKind::Infer
         } else {
             ImplKind::Struct
         };
-        
+
         let (target, target_generic_params) = if kind == ImplKind::Infer {
-            self.parse_delc_start().inspect_err(|e|{error!(%e);})?
+            self.parse_delc_start().inspect_err(|e| {
+                error!(%e);
+            })?
         } else {
             (String::new(), ThinVec::new())
         };
         self.consume_newlines();
         let mut bounds = None;
         if self.consume_if(&Token::Colon) {
-            bounds = Some(self.parse_type_op()
-                .inspect_err(|e|{error!(%e);})?);
+            bounds = Some(self.parse_type_op().inspect_err(|e| {
+                error!(%e);
+            })?);
         }
         let mut members = ThinVec::new();
-        if self.is_marker()? {  
+        if self.is_marker()? {
             return Ok(P(AstNode::ImplDeclaration {
                 name,
                 generic_params,
@@ -543,8 +575,9 @@ impl Parser {
             if self.consume_if(&Token::RBrace) {
                 break;
             }
-            members.push(self.parse_member(kind)
-                .inspect_err(|e|{error!(%e);})?);
+            members.push(self.parse_member(kind).inspect_err(|e| {
+                error!(%e);
+            })?);
         }
         Ok(P(AstNode::ImplDeclaration {
             name,
@@ -571,11 +604,9 @@ impl Parser {
                 ImplKind::Struct => self.parse_struct_field(),
                 ImplKind::Enum => self.parse_enum_variant(),
                 _ => self.parse_statement(), // Maybe we should return an error here?
-            }
+            },
         }
     }
-
-    
 
     #[instrument(skip(self))]
     fn parse_effect_member(&mut self) -> Result<Box<AstNode>, ParserError> {
@@ -621,11 +652,13 @@ impl Parser {
 
     #[instrument(skip(self))]
     fn parse_delc_start(&mut self) -> Result<(Ident, ThinVec<GenericParam>), ParserError> {
-        let name = self.parse_identifier()
-            .inspect_err(|e|{debug!(%e);})?;
+        let name = self.parse_identifier().inspect_err(|e| {
+            debug!(%e);
+        })?;
         let generic_params = if self.consume_if(&Token::LBracket) {
-            let params = self.parse_generic_params()
-                .inspect_err(|e|{error!(%e);})?;
+            let params = self.parse_generic_params().inspect_err(|e| {
+                error!(%e);
+            })?;
             self.consume(&Token::RBracket)?;
             params
         } else {
@@ -636,12 +669,14 @@ impl Parser {
 
     #[instrument]
     fn finish_fn_declaration(&mut self) -> Result<Box<AstNode>, ParserError> {
-        let name = self.parse_identifier()
-            .inspect_err(|e|{debug!(%e);})?;
+        let name = self.parse_identifier().inspect_err(|e| {
+            debug!(%e);
+        })?;
         debug!("finishing fn declaration {:?}", name);
         let generic_params = if self.consume_if(&Token::LBracket) {
-            let params = self.parse_generic_params()
-                .inspect_err(|e|{error!(%e);})?;
+            let params = self.parse_generic_params().inspect_err(|e| {
+                error!(%e);
+            })?;
             self.consume(&Token::RBracket)?;
             params
         } else {
@@ -649,8 +684,9 @@ impl Parser {
         };
 
         self.consume(&Token::LParen)?;
-        let params = self.parse_parameters()
-            .inspect_err(|e|{error!(%e);})?;
+        let params = self.parse_parameters().inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume(&Token::RParen)?;
 
         let return_type = if self.consume_if(&Token::Arrow) {
@@ -660,17 +696,17 @@ impl Parser {
         };
         let mut attrs = ThinVec::new();
         if self.peek() == Some(&Token::With) {
-            let with_clause = self.parse_with_clause()
-                .inspect_err(|e|{error!(%e);})?;
-            let is_async = with_clause.iter()
-                .any(|item| {
-                    matches!(
-                        item.clone(), 
-                        box WithClauseItem::Generic(
-                            GenericParam { name, kind: GenericParamKind::Type(None), .. }
-                        ) if name == "async"
-                    )
-                });
+            let with_clause = self.parse_with_clause().inspect_err(|e| {
+                error!(%e);
+            })?;
+            let is_async = with_clause.iter().any(|item| {
+                matches!(
+                    item.clone(),
+                    box WithClauseItem::Generic(
+                        GenericParam { name, kind: GenericParamKind::Type(None), .. }
+                    ) if name == "async"
+                )
+            });
             attrs.push(FnAttr {
                 is_async,
                 is_shared: false,
@@ -679,17 +715,19 @@ impl Parser {
         }
         println!("{}({:?}) -> {:?}", name, params, return_type);
         let body = if self.peek() == Some(&Token::LBrace) {
-            self.parse_block().inspect_err(|e|{error!(%e);})?
+            self.parse_block().inspect_err(|e| {
+                error!(%e);
+            })?
         } else {
             ThinVec::new()
         };
         Ok(P(AstNode::FunctionDeclaration {
             name,
-            attrs,  
+            attrs,
             function: Function {
                 generic_params,
                 inputs: params,
-                
+
                 output: return_type.map(FnRetTy::Ty).unwrap_or_default(),
             },
             body,
@@ -702,10 +740,11 @@ impl Parser {
         let mut clauses = ThinVec::new();
         while !self.check(&Token::LBrace) && !self.check(&Token::Semicolon) {
             // currently only handles the simple cases
-            clauses.push(P(WithClauseItem::Generic(
-                GenericParam::simple(self.parse_identifier()
-                    .inspect_err(|e|{debug!(%e);})?
-                ))));
+            clauses.push(P(WithClauseItem::Generic(GenericParam::simple(
+                self.parse_identifier().inspect_err(|e| {
+                    debug!(%e);
+                })?,
+            ))));
             if !self.consume_if(&Token::Comma) {
                 break;
             }
@@ -715,11 +754,14 @@ impl Parser {
 
     #[instrument]
     fn parse_function_call(&mut self, callee: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
-        let arguments = self.parse_arguments()
-            .inspect_err(|e|{error!(%e);})?;
+        let arguments = self.parse_arguments().inspect_err(|e| {
+            error!(%e);
+        })?;
         if self.check(&Token::LBrace) && self.will_occur_in_next_scope(&Token::In) {
             self.consume(&Token::LBrace)?;
-            self.parse_trailing_closure(callee).map(P).inspect_err(|e|{error!(%e);})
+            self.parse_trailing_closure(callee).map(P).inspect_err(|e| {
+                error!(%e);
+            })
         } else {
             Ok(P(AstNode::FunctionCall { callee, arguments }))
         }
@@ -732,8 +774,9 @@ impl Parser {
         let generic_args = if self.consume_if(&Token::LBracket) {
             let mut params = ThinVec::new();
             while !self.check(&Token::RBracket) {
-                params.push(P(Ty::simple(self.parse_identifier()
-                    .inspect_err(|e|{debug!(%e);})?)));
+                params.push(P(Ty::simple(self.parse_identifier().inspect_err(|e| {
+                    debug!(%e);
+                })?)));
                 if !self.consume_if(&Token::Comma) {
                     break;
                 }
@@ -746,12 +789,16 @@ impl Parser {
         if !self.check(&Token::LParen) {
             return Ok(P(AstNode::Identifier(callee)));
         }
-        let arguments = self.parse_arguments()
-            .inspect_err(|e|{error!(%e);})?;
+        let arguments = self.parse_arguments().inspect_err(|e| {
+            error!(%e);
+        })?;
         if self.check(&Token::LBrace) && self.will_occur_in_next_scope(&Token::In) {
             self.consume(&Token::LBrace)?;
             self.parse_trailing_closure(P(AstNode::Identifier(callee)))
-                .map(P).inspect_err(|e|{error!(%e);})
+                .map(P)
+                .inspect_err(|e| {
+                    error!(%e);
+                })
         } else {
             Ok(P(AstNode::GenericFunctionCall {
                 name: callee,
@@ -767,8 +814,11 @@ impl Parser {
     fn parse_generic_params(&mut self) -> Result<ThinVec<GenericParam>, ParserError> {
         let mut params = ThinVec::new();
         while !self.check(&Token::RBracket) {
-            params.push(GenericParam::simple(self.parse_identifier()
-                .inspect_err(|e|{debug!(%e);})?));
+            params.push(GenericParam::simple(self.parse_identifier().inspect_err(
+                |e| {
+                    debug!(%e);
+                },
+            )?));
             if !self.consume_if(&Token::Comma) {
                 break;
             }
@@ -783,16 +833,18 @@ impl Parser {
         let mut params = ThinVec::new();
         if !self.check(&Token::RParen) {
             loop {
-                let name = self.parse_identifier()
-                    .inspect_err(|e|{error!(%e);})?;
+                let name = self.parse_identifier().inspect_err(|e| {
+                    error!(%e);
+                })?;
                 let type_annotation = if name == "self" {
                     P(Ty {
                         kind: TyKind::SelfType,
                     })
                 } else {
                     self.consume(&Token::Colon)?;
-                    self.parse_type_annotation()
-                        .inspect_err(|e|{error!(%e);})?
+                    self.parse_type_annotation().inspect_err(|e| {
+                        error!(%e);
+                    })?
                 };
                 params.push(Param {
                     name,
@@ -817,8 +869,9 @@ impl Parser {
                 }
                 params.push(Param {
                     name: "".to_string(),
-                    ty: self.parse_type_annotation()
-                            .inspect_err(|e|{error!(%e);})?,
+                    ty: self.parse_type_annotation().inspect_err(|e| {
+                        error!(%e);
+                    })?,
                 });
                 if !self.consume_if(&Token::Comma) {
                     break;
@@ -826,8 +879,9 @@ impl Parser {
             }
             self.consume(&Token::Pipe)?;
             let return_type = if self.consume_if(&Token::Arrow) {
-                Some(self.parse_type_annotation()
-                    .inspect_err(|e|{error!(%e);})?)
+                Some(self.parse_type_annotation().inspect_err(|e| {
+                    error!(%e);
+                })?)
             } else {
                 None
             };
@@ -843,7 +897,9 @@ impl Parser {
         if self.consume_if(&Token::LBracket) {
             let mut params = ThinVec::new();
             loop {
-                params.push(self.parse_type_annotation().inspect_err(|e|{error!(%e);})?);
+                params.push(self.parse_type_annotation().inspect_err(|e| {
+                    error!(%e);
+                })?);
                 if !self.consume_if(&Token::Comma) {
                     break;
                 }
@@ -863,7 +919,9 @@ impl Parser {
     #[instrument]
     fn parse_variable_declaration(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Let)?;
-        self.finish_variable_declaration().inspect_err(|e|{error!(%e);})
+        self.finish_variable_declaration().inspect_err(|e| {
+            error!(%e);
+        })
     }
 
     #[instrument]
@@ -871,12 +929,16 @@ impl Parser {
         let mutable = self.consume_if(&Token::Mut);
         let name = self.parse_identifier()?;
         let type_annotation = if self.consume_if(&Token::Colon) {
-            Some(self.parse_type_annotation().inspect_err(|e|{error!(%e);})?)
+            Some(self.parse_type_annotation().inspect_err(|e| {
+                error!(%e);
+            })?)
         } else {
             None
         };
         let initializer = if self.consume_if(&Token::Assign) {
-            Some(self.parse_expression(Precedence::None).inspect_err(|e|{error!(%e);})?)
+            Some(self.parse_expression(Precedence::None).inspect_err(|e| {
+                error!(%e);
+            })?)
         } else {
             None
         };
@@ -895,7 +957,7 @@ impl Parser {
     pub fn parse_statement(&mut self) -> Result<Box<AstNode>, ParserError> {
         // Skip any leading newlines
         self.consume_newlines();
-        let node = match self.peek() {  
+        let node = match self.peek() {
             Some(Token::If) => self.parse_if_statement(),
             Some(Token::While) => self.parse_while_statement(),
             Some(Token::For) => self.parse_for_statement(),
@@ -904,7 +966,7 @@ impl Parser {
             Some(Token::LBrace) => Ok(P(AstNode::Block(self.parse_block()?))),
             Some(Token::Let) => self.parse_variable_declaration(),
             Some(Token::Run) => todo!(),
-            Some(Token::Pipeline)  => {
+            Some(Token::Pipeline) => {
                 if let Some(last_node) = self.last_node.clone() {
                     self.parse_pipeline(last_node)
                 } else {
@@ -912,7 +974,7 @@ impl Parser {
                         "Expected expression".to_string(),
                     ))
                 }
-            },
+            }
             _ => self.parse_expression(Precedence::None).and_then(|expr| {
                 self.consume_if(&Token::Semicolon);
                 Ok(expr)
@@ -949,9 +1011,13 @@ impl Parser {
     fn parse_while_statement(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.advance(); // Consume 'while'
         self.consume(&Token::LParen)?;
-        let condition = self.parse_expression(Precedence::None).inspect_err(|e|{error!(%e);})?;
+        let condition = self.parse_expression(Precedence::None).inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume(&Token::RParen)?;
-        let body = self.parse_block().inspect_err(|e|{error!(%e);})?;
+        let body = self.parse_block().inspect_err(|e| {
+            error!(%e);
+        })?;
         Ok(P(AstNode::WhileLoop {
             condition,
             body: P(AstNode::Block(body)),
@@ -962,10 +1028,16 @@ impl Parser {
     #[instrument]
     fn parse_for_statement(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::For)?;
-        let item = self.parse_identifier().inspect_err(|e|{error!(%e);})?;
+        let item = self.parse_identifier().inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume(&Token::In)?;
-        let iterable = self.parse_expression(Precedence::None).inspect_err(|e|{error!(%e);})?;
-        let body = self.parse_block().inspect_err(|e|{error!(%e);})?;
+        let iterable = self.parse_expression(Precedence::None).inspect_err(|e| {
+            error!(%e);
+        })?;
+        let body = self.parse_block().inspect_err(|e| {
+            error!(%e);
+        })?;
         Ok(P(AstNode::ForInLoop {
             item,
             iterable,
@@ -977,9 +1049,13 @@ impl Parser {
     #[instrument]
     fn parse_guard_statement(&mut self) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Guard)?;
-        let condition = self.parse_expression(Precedence::None).inspect_err(|e|{error!(%e);})?;
+        let condition = self.parse_expression(Precedence::None).inspect_err(|e| {
+            error!(%e);
+        })?;
         self.consume(&Token::Else)?;
-        let body = self.parse_statement().inspect_err(|e|{error!(%e);})?;
+        let body = self.parse_statement().inspect_err(|e| {
+            error!(%e);
+        })?;
         Ok(P(AstNode::GuardStatement { condition, body }))
     }
 
@@ -992,7 +1068,9 @@ impl Parser {
             && !self.check(&Token::Newline)
         {
             println!("parsing expression");
-            Some(self.parse_expression(Precedence::None).inspect_err(|e|{error!(%e);})?)
+            Some(self.parse_expression(Precedence::None).inspect_err(|e| {
+                error!(%e);
+            })?)
         } else {
             None
         };
@@ -1003,9 +1081,13 @@ impl Parser {
     #[instrument]
     fn parse_statement_or_block(&mut self) -> Result<Box<AstNode>, ParserError> {
         if self.check(&Token::LBrace) {
-            Ok(P(AstNode::Block(self.parse_block().inspect_err(|e|{error!(%e);})?)))
+            Ok(P(AstNode::Block(self.parse_block().inspect_err(|e| {
+                error!(%e);
+            })?)))
         } else {
-            Ok(self.parse_statement().inspect_err(|e|{error!(%e);})?)
+            Ok(self.parse_statement().inspect_err(|e| {
+                error!(%e);
+            })?)
         }
     }
 
@@ -1021,7 +1103,9 @@ impl Parser {
             if self.check(&Token::RBrace) {
                 break;
             }
-            statements.push(self.parse_statement().inspect_err(|e|{error!(%e);})?);
+            statements.push(self.parse_statement().inspect_err(|e| {
+                error!(%e);
+            })?);
         }
         debug!("{:?}", statements);
 
@@ -1043,14 +1127,18 @@ impl Parser {
                 break;
             }
 
-            arguments.push(self.parse_expression(Precedence::None).inspect_err(|e|{error!(%e);})?);
+            arguments.push(self.parse_expression(Precedence::None).inspect_err(|e| {
+                error!(%e);
+            })?);
             if !self.consume_if(&Token::Comma) {
                 break;
             }
         }
         self.consume(&Token::In)?;
         println!("{:?}", self.tokens);
-        let closure = self.finish_trailing_closure().inspect_err(|e|{error!(%e);})?;
+        let closure = self.finish_trailing_closure().inspect_err(|e| {
+            error!(%e);
+        })?;
         Ok(AstNode::TrailingClosure {
             callee: P(AstNode::FunctionCall { callee, arguments }),
             closure: P(closure),
@@ -1069,7 +1157,9 @@ impl Parser {
             if self.check(&Token::RBrace) {
                 break;
             }
-            statements.push(self.parse_statement().inspect_err(|e|{error!(%e);})?);
+            statements.push(self.parse_statement().inspect_err(|e| {
+                error!(%e);
+            })?);
         }
         println!("{:?}", statements);
 
@@ -1093,9 +1183,15 @@ impl Parser {
         &mut self,
         precedence: Precedence,
     ) -> Result<Box<AstNode>, ParserError> {
-        let mut left = self.parse_primary()
-            .inspect_err(|e|{error!(%e, ?precedence);})?;
-        debug!("parsed primary: {:?}, next precedence: {:?}, next token: {:?}", left, self.get_precedence(), self.peek());
+        let mut left = self.parse_primary().inspect_err(|e| {
+            error!(%e, ?precedence);
+        })?;
+        debug!(
+            "parsed primary: {:?}, next precedence: {:?}, next token: {:?}",
+            left,
+            self.get_precedence(),
+            self.peek()
+        );
         if self.at_expression_end() {
             trace!("at expression end");
             return Ok(left);
@@ -1104,16 +1200,18 @@ impl Parser {
             if self.at_expression_end() {
                 break;
             }
-            left = self.parse_infix(left)
-                .inspect_err(|e|{error!(%e, ?precedence);})?;
+            left = self.parse_infix(left).inspect_err(|e| {
+                error!(%e, ?precedence);
+            })?;
         }
         trace!("parsed infix: {:?}", left);
         // Check for trailing closure
         if self.check(&Token::LBrace) && self.will_occur_in_next_scope(&Token::In) {
             println!("found closure");
             self.consume(&Token::LBrace)?;
-            left = P(self.parse_trailing_closure(left)
-                .inspect_err(|e|{error!(%e, ?precedence);})?);
+            left = P(self.parse_trailing_closure(left).inspect_err(|e| {
+                error!(%e, ?precedence);
+            })?);
         }
 
         Ok(left)
@@ -1124,9 +1222,10 @@ impl Parser {
     fn parse_array_literal(&mut self) -> Result<Box<AstNode>, ParserError> {
         let mut elements = ThinVec::new();
         while !self.check(&Token::RBracket) {
-            elements.push(self.parse_expression(Precedence::None)
-                    .inspect_err(|e|{error!(%e);})?);
-            
+            elements.push(self.parse_expression(Precedence::None).inspect_err(|e| {
+                error!(%e);
+            })?);
+
             if !self.consume_if(&Token::Comma) {
                 break;
             }
@@ -1140,36 +1239,49 @@ impl Parser {
     #[instrument]
     fn parse_infix(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         let next = self.peek();
-        let prec = next
-            .map_or_else(|| Precedence::None, |t| Precedence::from_token(t));
-        debug!("left: {:?}, next precedence: {:?}, next token: {:?}", left, prec, next);
+        let prec = next.map_or_else(|| Precedence::None, |t| Precedence::from_token(t));
+        debug!(
+            "left: {:?}, next precedence: {:?}, next token: {:?}",
+            left, prec, next
+        );
         match prec {
             Precedence::Unary => {
-                let operator = self.advance()
-                    .map(|t| UnaryOperator::from_token(&t).ok_or(
-                        ParserError::UnexpectedToken(
+                let operator = self
+                    .advance()
+                    .map(|t| {
+                        UnaryOperator::from_token(&t).ok_or(ParserError::UnexpectedToken(
                             "Expected unary operator".to_string(),
-                        ),
-                    ))
+                        ))
+                    })
                     .ok_or(ParserError::UnexpectedToken(
                         "Expected unary operator".to_string(),
-                    )).inspect_err(|e|{error!(%e, ?prec);})??;
-                let operand = self.parse_expression(Precedence::Unary).inspect_err(|e|{error!(%e);})?;
-                Ok(P(AstNode::UnaryOperation {
-                    operator,
-                    operand,
-                }))
-            },
+                    ))
+                    .inspect_err(|e| {
+                        error!(%e, ?prec);
+                    })??;
+                let operand = self.parse_expression(Precedence::Unary).inspect_err(|e| {
+                    error!(%e);
+                })?;
+                Ok(P(AstNode::UnaryOperation { operator, operand }))
+            }
             Precedence::Term
             | Precedence::Factor
             | Precedence::Equality
             | Precedence::Or
             | Precedence::And
-            | Precedence::Comparison => self.parse_binary(left, prec).inspect_err(|e|{error!(%e);}),
-            Precedence::Assignment => self.parse_assignment(left).inspect_err(|e|{error!(%e);}),
-            Precedence::Pipeline => self.parse_pipeline(left).inspect_err(|e|{error!(%e);}),
-            Precedence::Call => self.parse_member_access(left).inspect_err(|e|{error!(%e);}),
-            
+            | Precedence::Comparison => self.parse_binary(left, prec).inspect_err(|e| {
+                error!(%e);
+            }),
+            Precedence::Assignment => self.parse_assignment(left).inspect_err(|e| {
+                error!(%e);
+            }),
+            Precedence::Pipeline => self.parse_pipeline(left).inspect_err(|e| {
+                error!(%e);
+            }),
+            Precedence::Call => self.parse_member_access(left).inspect_err(|e| {
+                error!(%e);
+            }),
+
             _ => Ok(left),
         }
     }
@@ -1177,44 +1289,49 @@ impl Parser {
     #[instrument]
     fn parse_member_access(&mut self, parent: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         self.consume(&Token::Dot)?;
-        let child = self.parse_expression(Precedence::Call).inspect_err(|e|{error!(%e);})?;
-        
-        match child {
-            box AstNode::FunctionCall { callee, arguments } => {
-                match (callee, parent) {
-                    (box AstNode::Identifier(name), box AstNode::Identifier(parent_name)) => {
-                        let path = AstNode::Identifier(format!("{}.{}", parent_name, name));
-                        Ok(P(AstNode::FunctionCall{ callee: P(path), arguments }))
-                    },
-                    _ => todo!(),
-                }
+        let child = self.parse_expression(Precedence::Call).inspect_err(|e| {
+            error!(%e);
+        })?;
 
+        match child {
+            box AstNode::FunctionCall { callee, arguments } => match (callee, parent) {
+                (box AstNode::Identifier(name), box AstNode::Identifier(parent_name)) => {
+                    let path = AstNode::Identifier(format!("{}.{}", parent_name, name));
+                    Ok(P(AstNode::FunctionCall {
+                        callee: P(path),
+                        arguments,
+                    }))
+                }
+                _ => todo!(),
             },
-            box AstNode::GenericFunctionCall { 
+            box AstNode::GenericFunctionCall {
                 name,
                 generic_args,
                 arguments,
-             } => {
-                match parent {
-                    box AstNode::Identifier(parent_name) => {
-                        let path = format!("{}.{}", parent_name, name);
-                        Ok(P(AstNode::GenericFunctionCall { name: path, generic_args, arguments }))
-                    },
-                    _ => todo!(),
+            } => match parent {
+                box AstNode::Identifier(parent_name) => {
+                    let path = format!("{}.{}", parent_name, name);
+                    Ok(P(AstNode::GenericFunctionCall {
+                        name: path,
+                        generic_args,
+                        arguments,
+                    }))
                 }
-             },
+                _ => todo!(),
+            },
             box AstNode::Identifier(name) => todo!(),
             _ => Err(ParserError::ExpectedToken(
                 "identifier".to_string(),
                 format!("{:?}", child),
             )),
-
         }
     }
 
     #[instrument]
     fn parse_unary(&mut self, op: UnaryOperator) -> Result<Box<AstNode>, ParserError> {
-        let operand = self.parse_expression(Precedence::Unary).inspect_err(|e|{error!(%e);})?;
+        let operand = self.parse_expression(Precedence::Unary).inspect_err(|e| {
+            error!(%e);
+        })?;
         Ok(P(AstNode::UnaryOperation {
             operator: op,
             operand,
@@ -1225,7 +1342,11 @@ impl Parser {
     #[instrument]
     fn parse_assignment(&mut self, left: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         self.advance(); // Consume the '=' token
-        let value = self.parse_expression(Precedence::Assignment).inspect_err(|e|{error!(%e);})?;
+        let value = self
+            .parse_expression(Precedence::Assignment)
+            .inspect_err(|e| {
+                error!(%e);
+            })?;
         Ok(P(AstNode::BinaryOperation {
             left,
             operator: BinaryOperator::Assign,
@@ -1238,7 +1359,11 @@ impl Parser {
     fn parse_pipeline(&mut self, prev: Box<AstNode>) -> Result<Box<AstNode>, ParserError> {
         self.advance(); // Consume the '|>' token
         println!("parsing pipeline");
-        let next = self.parse_expression(Precedence::Pipeline).inspect_err(|e|{error!(%e);})?;
+        let next = self
+            .parse_expression(Precedence::Pipeline)
+            .inspect_err(|e| {
+                error!(%e);
+            })?;
         Ok(P(AstNode::PipelineOperation { prev, next }))
     }
 
@@ -1252,10 +1377,14 @@ impl Parser {
         let operator = self.advance().ok_or(ParserError::UnexpectedToken(
             "Expected binary operator".to_string(),
         ))?;
-        let right = self.parse_expression(precedence).inspect_err(|e|{error!(%e);})?;
+        let right = self.parse_expression(precedence).inspect_err(|e| {
+            error!(%e);
+        })?;
         Ok(P(AstNode::BinaryOperation {
             left,
-            operator: self.token_to_binary_operator(operator).inspect_err(|e|{error!(%e);})?,
+            operator: self.token_to_binary_operator(operator).inspect_err(|e| {
+                error!(%e);
+            })?,
             right,
         }))
     }
@@ -1283,8 +1412,9 @@ impl Parser {
         let mut arguments = ThinVec::new();
         if !self.check(&Token::RParen) {
             loop {
-                arguments.push(self.parse_expression(Precedence::None)
-                    .inspect_err(|e|{error!(%e);})?);
+                arguments.push(self.parse_expression(Precedence::None).inspect_err(|e| {
+                    error!(%e);
+                })?);
                 debug!("parsed arguments: {:?}", arguments);
                 if !self.consume_if(&Token::Comma) {
                     break;
@@ -1314,8 +1444,6 @@ impl Parser {
             )),
         }
     }
-
-    
 
     /// Checks if the parser has reached the end of the token stream.
     fn is_at_end(&mut self) -> bool {

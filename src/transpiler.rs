@@ -8,11 +8,16 @@
 use thin_vec::ThinVec;
 
 use crate::{
-    ast::{ty::{Const, FnRetTy, IntTy, Mutability, Ty}, AstNode, BinaryOperator, UnaryOperator},
+    ast::{
+        ty::{Const, FnRetTy, IntTy, Mutability, Ty},
+        AstNode, BinaryOperator, UnaryOperator,
+    },
+    error::TranspilerError,
     type_checker::{Param, Type},
 };
 
 /// Represents the transpiler for converting Alloy AST to Rust code.
+#[derive(Default)]
 pub struct Transpiler {
     indent_level: usize,
 }
@@ -51,15 +56,15 @@ impl Transpiler {
             ),
             AstNode::VariableDeclaration {
                 name,
-                    attrs,
+                attrs,
                 type_annotation,
                 initializer,
             } => self.transpile_variable_declaration(
                 name,
-                attrs.first().map_or(false, |attr| attr.mutability == Mutability::Mut),
-                &type_annotation
-                    .as_ref()
-                    .map(|ty| Type::from(*ty.clone())),
+                attrs
+                    .first()
+                    .map_or(false, |attr| attr.mutability == Mutability::Mut),
+                &type_annotation.as_ref().map(|ty| Type::from(*ty.clone())),
                 initializer,
             ),
             AstNode::Block(statements) => self.transpile_block(&statements[..]),
@@ -106,31 +111,47 @@ impl Transpiler {
             } => todo!(),
             AstNode::TrailingClosure { callee, closure } => todo!(),
             AstNode::PipelineOperation { prev, next } => todo!(),
-            AstNode::EffectDeclaration { 
-                name, generic_params,
-                where_clause, bounds, members } => todo!(),
-            AstNode::StructDeclaration { 
-                name, generic_params, 
-                where_clause, members 
-            } => todo!(),
-            AstNode::EnumDeclaration { 
-                name, generic_params, 
-                where_clause, variants 
-            } => todo!(),
-            AstNode::TraitDeclaration { 
-                name, generic_params, 
-                bounds, where_clause, members 
-            } => todo!(),
-            AstNode::UnionDeclaration { 
-                name, generic_params, 
-                bounds, where_clause 
-            } => todo!(),
-            AstNode::ImplDeclaration { 
-                name, generic_params, 
-                kind, 
-                target, target_generic_params, 
+            AstNode::EffectDeclaration {
+                name,
+                generic_params,
                 where_clause,
-                bounds, members 
+                bounds,
+                members,
+            } => todo!(),
+            AstNode::StructDeclaration {
+                name,
+                generic_params,
+                where_clause,
+                members,
+            } => todo!(),
+            AstNode::EnumDeclaration {
+                name,
+                generic_params,
+                where_clause,
+                variants,
+            } => todo!(),
+            AstNode::TraitDeclaration {
+                name,
+                generic_params,
+                bounds,
+                where_clause,
+                members,
+            } => todo!(),
+            AstNode::UnionDeclaration {
+                name,
+                generic_params,
+                bounds,
+                where_clause,
+            } => todo!(),
+            AstNode::ImplDeclaration {
+                name,
+                generic_params,
+                kind,
+                target,
+                target_generic_params,
+                where_clause,
+                bounds,
+                members,
             } => todo!(),
             AstNode::WithClause(items) => todo!(),
         }
@@ -369,10 +390,10 @@ impl Transpiler {
             Type::SizedArray(inner_type, size) => {
                 let size = match size {
                     Const(box AstNode::IntLiteral(size)) => size,
-                    _ => todo!()
+                    _ => todo!(),
                 };
                 format!("[{}; {}]", self.transpile_type(inner_type), size)
-            },
+            }
             Type::Const(_) => todo!(),
             Type::Generic(_, thin_vec) => todo!(),
             Type::Paren(_) => todo!(),
@@ -381,13 +402,12 @@ impl Transpiler {
             Type::SelfType => todo!(),
             Type::Never => "!".to_string(),
             Type::Err => todo!(),
-            
         }
     }
 }
 
 /// Public function to transpile an AST to Rust code.
-pub fn transpile(ast: &AstNode) -> String {
+pub fn transpile(ast: &AstNode) -> Result<String, TranspilerError> {
     let mut transpiler = Transpiler::new();
-    transpiler.transpile(ast)
+    Ok(transpiler.transpile(ast))
 }

@@ -4,8 +4,11 @@ use core::fmt;
 
 use thin_vec::ThinVec;
 
-use crate::{ast::ty::{GenericParam, Mutability}, lexer::Token};
 use self::ty::{Function, Ident, Pattern, RefKind, Ty, TypeOp};
+use crate::{
+    ast::ty::{GenericParam, Mutability},
+    lexer::Token,
+};
 
 #[allow(non_snake_case)]
 pub fn P<T: 'static>(value: T) -> Box<T> {
@@ -122,26 +125,26 @@ pub enum AstNode {
         generic_params: ThinVec<GenericParam>,
         bounds: Option<TypeOp>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        members: ThinVec<Box<AstNode>>, 
+        members: ThinVec<Box<AstNode>>,
     },
     StructDeclaration {
         name: Ident,
         generic_params: ThinVec<GenericParam>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        members: ThinVec<Box<AstNode>>, 
+        members: ThinVec<Box<AstNode>>,
     },
     EnumDeclaration {
         name: Ident,
         generic_params: ThinVec<GenericParam>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        variants: ThinVec<Box<AstNode>>, 
+        variants: ThinVec<Box<AstNode>>,
     },
     TraitDeclaration {
         name: Ident,
         generic_params: ThinVec<GenericParam>,
         bounds: Option<TypeOp>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        members: ThinVec<Box<AstNode>>, 
+        members: ThinVec<Box<AstNode>>,
     },
     UnionDeclaration {
         name: Ident,
@@ -157,7 +160,7 @@ pub enum AstNode {
         target_generic_params: ThinVec<GenericParam>,
         bounds: Option<TypeOp>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        members: ThinVec<Box<AstNode>>, 
+        members: ThinVec<Box<AstNode>>,
     },
     WithClause(ThinVec<Box<WithClauseItem>>),
 }
@@ -167,7 +170,6 @@ pub enum WhereClauseItem {
     Generic(GenericParam),
     Algebraic(TypeOp),
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WithClauseItem {
@@ -181,8 +183,6 @@ pub struct FnAttr {
     pub is_shared: bool,
     pub effects: ThinVec<Box<WithClauseItem>>,
 }
-
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BindAttr {
@@ -300,7 +300,6 @@ pub enum Literal {
     Char(char),
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum IntKind {
     I8,
@@ -310,7 +309,6 @@ pub enum IntKind {
     I128,
     Isize,
     Int,
-    
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,12 +1,12 @@
 use alloy::lexer::Lexer;
 use alloy::parser::Parser;
-use alloy::transpiler::transpiler::transpile;
+use alloy::transpiler::transpile;
 
 fn transpile_code(code: &str) -> String {
     let tokens = Lexer::tokenize(code).expect("Failed to tokenize code");
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().expect("Failed to parse code");
-    transpile(&ast)
+    transpile(&ast).expect("Failed to transpile code")
 }
 
 #[test]
