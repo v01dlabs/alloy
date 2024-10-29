@@ -9,7 +9,9 @@ use thin_vec::ThinVec;
 
 use crate::{
     ast::{
-        ty::{Const, FnRetTy, IntKind, Mutability, Pattern, PatternKind, Ty, UintKind}, AstElem, AstElemKind, BinaryOperator, Expr, ExprKind, Item, ItemKind, Literal, LocalKind, Statement, StatementKind, UnaryOperator, P
+        ty::{Const, FnRetTy, IntKind, Mutability, Pattern, PatternKind, Ty, UintKind},
+        AstElem, AstElemKind, BinaryOperator, Expr, ExprKind, Item, ItemKind, Literal, LocalKind,
+        Statement, StatementKind, UnaryOperator, P,
     },
     error::TranspilerError,
     type_checker::{Param, Type},
@@ -50,16 +52,21 @@ impl Transpiler {
                 name,
                 attrs,
                 type_annotation,
-                initializer
+                initializer,
             } => self.transpile_variable_declaration(
                 name.as_str(),
                 attrs
                     .first()
                     .map_or(false, |attr| attr.mutability == Mutability::Mut),
                 &type_annotation.as_ref().map(|ty| Type::from(*ty.clone())),
-                &initializer
+                &initializer,
             ),
-            ItemKind::Fn { name, attrs, function, body } => self.transpile_function(
+            ItemKind::Fn {
+                name,
+                attrs,
+                function,
+                body,
+            } => self.transpile_function(
                 &name,
                 &function
                     .inputs
@@ -72,9 +79,9 @@ impl Transpiler {
             ItemKind::Effect {
                 name,
                 generic_params,
-                 bounds,
-                 where_clause,
-                 members
+                bounds,
+                where_clause,
+                members,
             } => todo!(),
             ItemKind::Struct {
                 name,
@@ -120,57 +127,42 @@ impl Transpiler {
             ExprKind::Call {
                 callee,
                 generic_args,
-                args } => self.transpile_function_call(
+                args,
+            } => self.transpile_function_call(
                 callee,
-                &args.iter().map(|arg|&**arg).collect::<Vec<_>>()[..],
+                &args.iter().map(|arg| &**arg).collect::<Vec<_>>()[..],
             ),
-            ExprKind::MethodCall { path_seg, receiver, args } => todo!(),
-            ExprKind::Binary {
-                binop,
-                lhs,
-                rhs
-            } => self.transpile_binary_op(binop, lhs, rhs),
+            ExprKind::MethodCall {
+                path_seg,
+                receiver,
+                args,
+            } => todo!(),
+            ExprKind::Binary { binop, lhs, rhs } => self.transpile_binary_op(binop, lhs, rhs),
             ExprKind::Unary(unary_operator, operand) => {
                 self.transpile_unary_op(unary_operator, operand)
             }
             ExprKind::Cast(expr, ty) => todo!(),
             ExprKind::Literal(literal) => literal.to_string(),
-            ExprKind::Let {
-                pat,
-                ty,
-                init
-            } => {
+            ExprKind::Let { pat, ty, init } => {
                 let pat_str = self.transpile_pattern(pat);
-                let ty_str = ty.as_ref()
-                    .map_or(
-                        String::new(),
-                    |ty| format!(": {}", self.transpile_expr(ty)
-                ));
-                let init_str = init.as_ref()
-                .map_or(
-                    String::new(),
-                    |init| self.transpile_expr(init)
-                );
+                let ty_str = ty
+                    .as_ref()
+                    .map_or(String::new(), |ty| format!(": {}", self.transpile_expr(ty)));
+                let init_str = init
+                    .as_ref()
+                    .map_or(String::new(), |init| self.transpile_expr(init));
                 format!("{}{}{};", pat_str, ty_str, init_str)
-            },
+            }
             ExprKind::Type { expr, ty } => todo!(),
             ExprKind::Guard { condition, body } => todo!(),
-            ExprKind::If {
-                cond,
-                then,
-                else_
-             } => self.transpile_if(cond, then, else_),
+            ExprKind::If { cond, then, else_ } => self.transpile_if(cond, then, else_),
             ExprKind::While { cond, body, label } => self.transpile_while(cond, body),
             ExprKind::For {
                 pat,
                 iter,
                 body,
-                label
-             } => self.transpile_for(
-                &Some(P(*pat.clone())),
-                &Some(P(*iter.clone())),
-                &None,
-                body),
+                label,
+            } => self.transpile_for(&Some(P(*pat.clone())), &Some(P(*iter.clone())), &None, body),
             ExprKind::Loop { body, label } => todo!(),
             ExprKind::Match { expr, arms } => todo!(),
             ExprKind::Block(block, _) => self.transpile_block(&block.stmts[..]),
@@ -179,24 +171,36 @@ impl Transpiler {
                 let lhs_str = self.transpile_expr(lhs);
                 let rhs_str = self.transpile_expr(rhs);
                 format!("{} = {};", lhs_str, rhs_str)
-            },
+            }
             ExprKind::AssignOp { lhs, op, rhs } => todo!(),
-            ExprKind::Closure { callee, params, closure } => todo!(),
-            ExprKind::TrailingClosure { callee, args, closure } => todo!(),
-            ExprKind::Struct { qual_self, path, fields } => todo!(),
+            ExprKind::Closure {
+                callee,
+                params,
+                closure,
+            } => todo!(),
+            ExprKind::TrailingClosure {
+                callee,
+                args,
+                closure,
+            } => todo!(),
+            ExprKind::Struct {
+                qual_self,
+                path,
+                fields,
+            } => todo!(),
             ExprKind::PipelineOperation { prev, next } => todo!(),
             ExprKind::Field(expr, _) => todo!(),
             ExprKind::Index { expr, index } => todo!(),
             ExprKind::Range { start, end, limits } => todo!(),
             ExprKind::Underscore => todo!(),
             ExprKind::Paren(expr) => todo!(),
-            ExprKind::Path(qualified_self, path) =>{
+            ExprKind::Path(qualified_self, path) => {
                 let path_str = path.segments.join("::");
                 match qualified_self {
                     Some(qual_self) => format!("{}::{}", qual_self, path_str),
                     None => path_str,
                 }
-            },
+            }
             ExprKind::Break { label, expr } => todo!(),
             ExprKind::Continue { label } => todo!(),
             ExprKind::Return(expr) => self.transpile_return(expr),
@@ -460,7 +464,7 @@ impl Transpiler {
                         } else {
                             todo!()
                         }
-                    },
+                    }
                     _ => todo!(),
                 };
                 format!("[{}; {}]", self.transpile_type(inner_type), size)

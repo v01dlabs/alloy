@@ -1471,6 +1471,7 @@ impl Parser {
             ))),
         }
     }
+
     /// Parses a do statement.
     #[instrument]
     fn parse_do_statement(&mut self) -> Result<Box<Statement>, ParserError> {
