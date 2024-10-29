@@ -2,138 +2,13 @@
 //!
 //! The lexer is responsible for converting raw source code into
 //! a series of tokens that can be processed by the parser.
-
+pub mod token;
 use crate::error::LexerError;
+use crate::lexer::token::Token;
 use std::fmt;
 use std::iter::Peekable;
 use std::str::Chars;
 
-/// Represents a token in Alloy.
-#[derive(Debug, PartialEq, Clone)]
-pub enum Token {
-    // Keywords
-    Let,
-    Run,
-    Return,
-    Fn,
-    If,
-
-    Else,
-    While,
-    Loop,
-    Do, // I really miss these in Rust sometimes
-    For,
-    Match,
-    Guard,
-
-    Mut,
-    Async,
-    Shared,
-    Default,
-    In,
-    With,
-    Where,
-
-    Await,
-
-    Struct, // ? unsure if keeping
-    Enum,   // ? unsure if keeping
-    Union,
-    Type,
-    Effect,
-    Trait,
-    Handler,
-
-    Impl,
-
-    // Literals
-    Identifier(String),
-    IntLiteral(i64),
-    FloatLiteral(f64),
-    StringLiteral(String),
-    BoolLiteral(bool),
-
-    // Operators
-    Plus,
-    Minus,
-    Multiply,
-    Divide,
-    Assign,
-    Eq,
-    Modulo,
-    NotEq,
-    Lt,
-    LtEq,
-    Gt,
-    GtEq,
-    And,
-    Or,
-    Not,
-    Pipeline,
-    Increment,
-    Decrement,
-    Range,
-
-    Typeof,
-    As,
-
-    // Delimiters
-    LParen,
-    RParen,
-    LBrace,
-    RBrace,
-    LBracket,
-    RBracket,
-    Pipe,
-    Comma,
-    Dot,
-    QuestionMark,
-    ExclamationPt,
-    Colon,
-    PathSep,
-    Arrow,
-    Semicolon,
-    Newline,
-
-    // Special
-    Eof,
-}
-
-impl Token {
-    pub fn is_block_end(&self) -> bool {
-        matches!(
-            self,
-            Token::RBrace | Token::RBracket | Token::RParen | Token::Eof
-        )
-    }
-
-    pub fn is_block_start(&self) -> bool {
-        matches!(self, Token::LBrace | Token::LBracket | Token::LParen)
-            || matches!(
-                self,
-                Token::If
-                    | Token::Let
-                    | Token::Else
-                    | Token::For
-                    | Token::While
-                    | Token::Guard
-                    | Token::Match
-            )
-    }
-
-    pub fn ident_to_keyword<'a>(&'a self) -> &'a Token {
-        match self {
-            Token::Identifier(ref ident) => match ident.as_str() {
-                "handler" => &Token::Handler,
-                "shared" => &Token::Shared,
-                "default" => &Token::Default,
-                "effect" => &Token::Effect,
-                _ => self,
-            },
-            _ => self,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Location {
@@ -305,8 +180,6 @@ impl<'a> Lexer<'a> {
             "shared" => Token::Shared,
             "run" => Token::Run,
             "with" => Token::With,
-
-            "\r\n" => Token::Newline, // windows line ending bit awakward here but...
             _ => Token::Identifier(ident.to_string()),
         }
     }
@@ -426,11 +299,11 @@ impl<'a> Lexer<'a> {
                     } else {
                         Ok(Token::Colon)
                     }
-                }
+                },
                 ';' => Ok(Token::Semicolon),
                 '?' => Ok(Token::QuestionMark),
                 '\n' => Ok(Token::Newline),
-
+                
                 _ => Err(LexerError::UnexpectedChar(
                     c,
                     LexerError::to_miette_span(&self.loc()),
@@ -459,3 +332,4 @@ impl<'a> Lexer<'a> {
         Ok(tokens)
     }
 }
+
