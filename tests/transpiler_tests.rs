@@ -25,7 +25,7 @@ fn test_mutable_variable_declaration() {
 
 #[test]
 fn test_function_declaration() {
-    let alloy_code = "func add(a: int, b: int) -> int { return a + b; }";
+    let alloy_code = "fn add(a: int, b: int) -> int {\n    return a + b;\n}";
     let rust_code = transpile_code(alloy_code);
     assert_eq!(
         rust_code.trim(),
@@ -52,17 +52,17 @@ fn test_while_loop() {
 
 #[test]
 fn test_for_loop() {
-    let alloy_code = "for (let i = 0; i < 10; i = i + 1) { print(i); }";
+    let alloy_code = "for value in values { print(value) }";
     let rust_code = transpile_code(alloy_code);
     assert_eq!(
         rust_code.trim(),
-        "for let i = 0; (i < 10); i = (i + 1) {\n    print(i);\n}"
+        "for value in values {\n    print(value)\n}"
     );
 }
 
 #[test]
 fn test_array_literal() {
-    let alloy_code = "let arr: [int] = [1, 2, 3, 4, 5];";
+    let alloy_code = "let arr: Array[int] = [1, 2, 3, 4, 5]";
     let rust_code = transpile_code(alloy_code);
     assert_eq!(rust_code.trim(), "let arr: Vec<i32> = vec![1, 2, 3, 4, 5];");
 }

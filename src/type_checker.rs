@@ -9,11 +9,13 @@ use tracing::{error, instrument};
 
 use crate::{
     ast::{
-        self, ty::{
+        self,
+        ty::{
             AttrItem, Const, FloatKind, FnRetTy, Ident, IntKind, Mutability, PatField, Path,
             Pattern, PatternKind, RefKind, Ty, TyKind, TypeOp, UintKind,
-        }, 
-        AstElem, AstElemKind, BinaryOperator, BindAttr, Statement, StatementKind, Item, ItemKind, Expr, ExprKind, UnaryOperator, Visibility, P,
+        },
+        AstElem, AstElemKind, BinaryOperator, BindAttr, Expr, ExprKind, Item, ItemKind, Statement,
+        StatementKind, UnaryOperator, Visibility, P,
     },
     error::TypeError,
 };
@@ -128,25 +130,59 @@ impl TypeChecker {
     pub fn infer_item_type(&mut self, item: &Item) -> Result<Type, TypeError> {
         match &item.kind {
             ItemKind::Fn {
-                 name, attrs, function, body 
-                } => todo!(),
-            ItemKind::Bind { 
-                name, attrs, type_annotation, initializer 
+                name,
+                attrs,
+                function,
+                body,
+            } => todo!(),
+            ItemKind::Bind {
+                name,
+                attrs,
+                type_annotation,
+                initializer,
             } => todo!(),
             ItemKind::Effect {
-                 name, generic_params, bounds, where_clause, members 
+                name,
+                generic_params,
+                bounds,
+                where_clause,
+                members,
             } => todo!(),
-            ItemKind::Struct { 
-                name, generic_params, where_clause, members 
+            ItemKind::Struct {
+                name,
+                generic_params,
+                where_clause,
+                members,
             } => todo!(),
-            ItemKind::Enum { 
-                name, generic_params, where_clause, variants 
+            ItemKind::Enum {
+                name,
+                generic_params,
+                where_clause,
+                variants,
             } => todo!(),
-            ItemKind::Trait { 
-                name, generic_params, bounds, where_clause, members 
+            ItemKind::Trait {
+                name,
+                generic_params,
+                bounds,
+                where_clause,
+                members,
             } => todo!(),
-            ItemKind::Union { name, generic_params, bounds, where_clause } => todo!(),
-            ItemKind::Impl { name, generic_params, kind, target, target_generic_params, bounds, where_clause, members } => todo!(),
+            ItemKind::Union {
+                name,
+                generic_params,
+                bounds,
+                where_clause,
+            } => todo!(),
+            ItemKind::Impl {
+                name,
+                generic_params,
+                kind,
+                target,
+                target_generic_params,
+                bounds,
+                where_clause,
+                members,
+            } => todo!(),
         }
     }
 
@@ -154,8 +190,16 @@ impl TypeChecker {
         match &expr.kind {
             ExprKind::Array(thin_vec) => todo!(),
             ExprKind::ConstBlock(_) => todo!(),
-            ExprKind::Call { callee, generic_args, args } => todo!(),
-            ExprKind::MethodCall { path_seg, receiver, args } => todo!(),
+            ExprKind::Call {
+                callee,
+                generic_args,
+                args,
+            } => todo!(),
+            ExprKind::MethodCall {
+                path_seg,
+                receiver,
+                args,
+            } => todo!(),
             ExprKind::Binary { binop, lhs, rhs } => todo!(),
             ExprKind::Unary(unary_operator, expr) => todo!(),
             ExprKind::Cast(expr, ty) => todo!(),
@@ -164,7 +208,12 @@ impl TypeChecker {
             ExprKind::Type { expr, ty } => todo!(),
             ExprKind::If { cond, then, else_ } => todo!(),
             ExprKind::While { cond, body, label } => todo!(),
-            ExprKind::For { pat, iter, body, label } => todo!(),
+            ExprKind::For {
+                pat,
+                iter,
+                body,
+                label,
+            } => todo!(),
             ExprKind::Loop { body, label } => todo!(),
             ExprKind::Match { expr, arms } => todo!(),
             ExprKind::Block(block, _) => todo!(),
@@ -172,9 +221,21 @@ impl TypeChecker {
             ExprKind::Guard { condition, body } => todo!(),
             ExprKind::Assign { lhs, rhs } => todo!(),
             ExprKind::AssignOp { lhs, op, rhs } => todo!(),
-            ExprKind::Closure { callee, params, closure } => todo!(),
-            ExprKind::TrailingClosure { callee, args, closure } => todo!(),
-            ExprKind::Struct { qual_self, path, fields } => todo!(),
+            ExprKind::Closure {
+                callee,
+                params,
+                closure,
+            } => todo!(),
+            ExprKind::TrailingClosure {
+                callee,
+                args,
+                closure,
+            } => todo!(),
+            ExprKind::Struct {
+                qual_self,
+                path,
+                fields,
+            } => todo!(),
             ExprKind::PipelineOperation { prev, next } => todo!(),
             ExprKind::Field(expr, _) => todo!(),
             ExprKind::Index { expr, index } => todo!(),
@@ -210,7 +271,7 @@ impl TypeChecker {
                     last_type = self.infer_type(statement)?;
                 }
                 Ok(last_type)
-            },
+            }
             AstElemKind::Expr(expr) => self.infer_expr_type(expr),
             AstElemKind::Item(item) => self.infer_item_type(item),
             AstElemKind::Statement(statement) => self.typecheck_statement(statement),
@@ -271,11 +332,11 @@ impl TypeChecker {
         //                     ty: P(*t2.clone()),
         //                 })
         //                 .collect(),
-        //             // TODO: Placeholder for now  
+        //             // TODO: Placeholder for now
         //             attrs: attrs.clone(),
         //             output: P(return_type.clone()),
         //         });
-                
+
         //         fn_checker.insert_function(name, &fn_type, attrs.clone(), None);
         //         for statement in body.iter() {
         //             if let &box AstNode::ReturnStatement(ref expr) = statement {
@@ -309,7 +370,7 @@ impl TypeChecker {
         //                     ty: P(*t2.clone()),
         //                 })
         //                 .collect(),
-        //             // TODO: Placeholder for now  
+        //             // TODO: Placeholder for now
         //             attrs: attrs.clone(),
         //             output: P(return_type),
         //         });
@@ -408,7 +469,7 @@ impl TypeChecker {
         //         let iter_type = self.infer_type(iterable).inspect_err(|e|{error!(%e);})?;
         //         if let Type::Array(ty) = iter_type {
         //             let mut loop_checker = self.copy_env();
-        //             loop_checker.insert_variable(&item, &ty, 
+        //             loop_checker.insert_variable(&item, &ty,
         //                 BindAttr::new(false, Some(RefKind::Sync(Mutability::Not)))
         //             );
         //             loop_checker.infer_type(body)
@@ -567,31 +628,31 @@ impl TypeChecker {
         //     AstNode::StringLiteral(_) => Ok(Type::String),
         //     AstNode::BoolLiteral(_) => Ok(Type::Bool),
         //     AstNode::ArrayLiteral(elements) => self.typecheck_array_literal(elements),
-        //     AstNode::EffectDeclaration { 
+        //     AstNode::EffectDeclaration {
         //         name, generic_params,
         //         where_clause, bounds, members } => todo!(),
-        //     AstNode::StructDeclaration { 
-        //         name, generic_params, 
-        //         where_clause, members 
+        //     AstNode::StructDeclaration {
+        //         name, generic_params,
+        //         where_clause, members
         //     } => todo!(),
-        //     AstNode::EnumDeclaration { 
-        //         name, generic_params, 
-        //         where_clause, variants 
+        //     AstNode::EnumDeclaration {
+        //         name, generic_params,
+        //         where_clause, variants
         //     } => todo!(),
-        //     AstNode::TraitDeclaration { 
-        //         name, generic_params, 
-        //         bounds, where_clause, members 
+        //     AstNode::TraitDeclaration {
+        //         name, generic_params,
+        //         bounds, where_clause, members
         //     } => todo!(),
-        //     AstNode::UnionDeclaration { 
-        //         name, generic_params, 
-        //         bounds, where_clause 
+        //     AstNode::UnionDeclaration {
+        //         name, generic_params,
+        //         bounds, where_clause
         //     } => todo!(),
-        //     AstNode::ImplDeclaration { 
-        //         name, generic_params, 
-        //         kind, 
-        //         target, target_generic_params, 
+        //     AstNode::ImplDeclaration {
+        //         name, generic_params,
+        //         kind,
+        //         target, target_generic_params,
         //         where_clause,
-        //         bounds, members 
+        //         bounds, members
         //     } => todo!(),
         //     AstNode::WithClause(items) => todo!(),
         // }
@@ -704,12 +765,14 @@ impl TypeChecker {
             | BinaryOperator::Multiply
             | BinaryOperator::Divide
             | BinaryOperator::Modulo => {
-                if right == &Type::Infer && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
+                if right == &Type::Infer
+                    && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
                 {
                     Ok(right.clone())
                 } else if left == &Type::Infer
                     && (matches!(right, &Type::Int(_)) || matches!(right, &Type::Float(_)))
-                    || left == right && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
+                    || left == right
+                        && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
                 {
                     Ok(left.clone())
                 } else {
@@ -731,10 +794,12 @@ impl TypeChecker {
             | BinaryOperator::GreaterThan
             | BinaryOperator::LessThanOrEqual
             | BinaryOperator::GreaterThanOrEqual => {
-                if right == &Type::Infer && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
+                if right == &Type::Infer
+                    && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
                     || left == &Type::Infer
                         && (matches!(right, &Type::Int(_)) || matches!(right, &Type::Float(_)))
-                    || left == right && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
+                    || left == right
+                        && (matches!(left, &Type::Int(_)) || matches!(left, &Type::Float(_)))
                 {
                     Ok(Type::Bool)
                 } else {
@@ -885,8 +950,6 @@ pub enum BindingType {
     Ref(RefKind, BindAttr),
     Function(FnAttr),
 }
-
-
 
 /// Represents a type in the Alloy type system.
 #[derive(Debug, Clone, PartialEq)]

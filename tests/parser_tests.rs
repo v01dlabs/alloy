@@ -1,7 +1,14 @@
 #![feature(box_patterns)]
 
 use alloy::{
-    ast::{ty::{FnRetTy, Function, GenericParam, GenericParamKind, Mutability, Param, Path, Pattern, Ty, TyKind}, AstElem, BinaryOperator, BindAttr, Expr, FnAttr, ImplKind, Item, Literal, Precedence, Statement, UnaryOperator, WithClauseItem, P},
+    ast::{
+        ty::{
+            FnRetTy, Function, GenericParam, GenericParamKind, Mutability, Param, Path, Pattern,
+            Ty, TyKind,
+        },
+        AstElem, BinaryOperator, BindAttr, Expr, FnAttr, ImplKind, Item, Literal, Precedence,
+        Statement, UnaryOperator, WithClauseItem, P,
+    },
     error::ParserError,
     lexer::{token::Token, Lexer},
     parser::{parse, Parser},
@@ -45,7 +52,10 @@ fn test_parse_variable_declaration() {
     );
     let expected = P(AstElem::item(P(Item::bind(
         "x".to_string(),
-        thin_vec![BindAttr { mutability: Mutability::Not, ref_kind: None }],
+        thin_vec![BindAttr {
+            mutability: Mutability::Not,
+            ref_kind: None
+        }],
         Some(P(Ty::simple("int".to_string()))),
         Some(P(Expr::literal(Literal::Int(5)))),
     ))));
@@ -101,9 +111,7 @@ fn test_parse_function_declaration() {
         "add".to_string(),
         thin_vec![],
         Function {
-            generic_params: thin_vec![
-                GenericParam::simple("T".to_string()),
-            ],
+            generic_params: thin_vec![GenericParam::simple("T".to_string()),],
             inputs: thin_vec![
                 Param {
                     name: "a".to_string(),
@@ -116,13 +124,11 @@ fn test_parse_function_declaration() {
             ],
             output: FnRetTy::Ty(P(Ty::simple("T".to_string()))),
         },
-        thin_vec![P(Statement::expr(P(Expr::return_(
-            Some(P(Expr::binary(
-                BinaryOperator::Add,
-                P(Expr::path(None, Path::ident("a".to_string()))),
-                P(Expr::path(None, Path::ident("b".to_string()))),
-            ))),
-        ))))],
+        thin_vec![P(Statement::expr(P(Expr::return_(Some(P(Expr::binary(
+            BinaryOperator::Add,
+            P(Expr::path(None, Path::ident("a".to_string()))),
+            P(Expr::path(None, Path::ident("b".to_string()))),
+        ))),))))],
     ))));
     assert_eq!(result, expected);
 }
@@ -148,13 +154,19 @@ fn test_parse_multiple_declarations() {
     let expected = P(AstElem::program(thin_vec![
         P(AstElem::item(P(Item::bind(
             "x".to_string(),
-            thin_vec![BindAttr { mutability: Mutability::Not, ref_kind: None }],
+            thin_vec![BindAttr {
+                mutability: Mutability::Not,
+                ref_kind: None
+            }],
             None,
             Some(P(Expr::literal(Literal::Int(5)))),
         )))),
         P(AstElem::item(P(Item::bind(
             "y".to_string(),
-            thin_vec![BindAttr { mutability: Mutability::Not, ref_kind: None }],
+            thin_vec![BindAttr {
+                mutability: Mutability::Not,
+                ref_kind: None
+            }],
             None,
             Some(P(Expr::literal(Literal::Int(10)))),
         )))),
@@ -190,12 +202,18 @@ fn test_parse_if_statement() {
             P(Expr::path(None, Path::ident("x".to_string()))),
             P(Expr::literal(Literal::Int(5))),
         )),
-        P(Expr::block(thin_vec![P(Statement::expr(P(Expr::return_(
-            Some(P(Expr::literal(Literal::Bool(true)))),
-        ))))], None)),
-        Some(P(Expr::block(thin_vec![P(Statement::expr(P(Expr::return_(
-            Some(P(Expr::literal(Literal::Bool(false)))),
-        ))))], None))),
+        P(Expr::block(
+            thin_vec![P(Statement::expr(P(Expr::return_(Some(P(
+                Expr::literal(Literal::Bool(true))
+            )),))))],
+            None,
+        )),
+        Some(P(Expr::block(
+            thin_vec![P(Statement::expr(P(Expr::return_(Some(P(
+                Expr::literal(Literal::Bool(false))
+            )),))))],
+            None,
+        ))),
     ))));
     assert_eq!(result, expected);
 }
@@ -231,16 +249,17 @@ fn test_parse_while_loop() {
             P(Expr::path(None, Path::ident("i".to_string()))),
             P(Expr::literal(Literal::Int(10))),
         )),
-        P(Expr::block(thin_vec![
-            P(Statement::expr(P(Expr::assign(
+        P(Expr::block(
+            thin_vec![P(Statement::expr(P(Expr::assign(
                 P(Expr::path(None, Path::ident("i".to_string()))),
                 P(Expr::binary(
                     BinaryOperator::Add,
                     P(Expr::path(None, Path::ident("i".to_string()))),
                     P(Expr::literal(Literal::Int(1))),
                 )),
-            )))),
-        ], None)),
+            )))),],
+            None,
+        )),
         None,
     ))));
     assert_eq!(result.unwrap(), expected);
@@ -260,11 +279,14 @@ fn test_parse_for_statement() {
     let expected = P(Statement::expr(P(Expr::for_(
         P(Pattern::id_simple("name".to_string())),
         P(Expr::path(None, Path::ident("names".to_string()))),
-        P(Expr::block(thin_vec![P(Statement::expr(P(Expr::call(
-            P(Expr::path(None, Path::ident("print".to_string()))),
+        P(Expr::block(
+            thin_vec![P(Statement::expr(P(Expr::call(
+                P(Expr::path(None, Path::ident("print".to_string()))),
+                None,
+                thin_vec![P(Expr::path(None, Path::ident("name".to_string())))],
+            ))))],
             None,
-            thin_vec![P(Expr::path(None, Path::ident("name".to_string())))],
-        ))))], None)),
+        )),
         None,
     ))));
     assert_eq!(result.unwrap(), expected);
@@ -287,20 +309,23 @@ fn test_parse_pipeline_operator() {
     let mut parser = create_parser(tokens);
     let result = parser.parse_statement().unwrap();
     let expected = P(Statement::expr(P(Expr::pipeline(
-            P(AstElem::expr(P(Expr::pipeline(
-                P(AstElem::expr(P(Expr::path(None, Path::ident("x".to_string()))))),
-                P(Expr::call(
-                    P(Expr::path(None, Path::ident("foo".to_string()))),
-                    None,
-                    thin_vec![],
-                )),
+        P(AstElem::expr(P(Expr::pipeline(
+            P(AstElem::expr(P(Expr::path(
+                None,
+                Path::ident("x".to_string()),
             )))),
             P(Expr::call(
-                P(Expr::path(None, Path::ident("bar".to_string()))),
+                P(Expr::path(None, Path::ident("foo".to_string()))),
                 None,
                 thin_vec![],
             )),
-        ))));
+        )))),
+        P(Expr::call(
+            P(Expr::path(None, Path::ident("bar".to_string()))),
+            None,
+            thin_vec![],
+        )),
+    ))));
     assert_eq!(result, expected);
 }
 
@@ -318,16 +343,17 @@ fn test_parse_trailing_closure() {
     );
     let expected = P(Expr::trailing_closure(
         P(Expr::call(
-            P(Expr::path(None, Path::ident("someFunction".to_string()))), 
+            P(Expr::path(None, Path::ident("someFunction".to_string()))),
             None,
-            thin_vec![]
+            thin_vec![],
         )),
         thin_vec![],
-        P(Expr::block(thin_vec![
-            P(Statement::expr(P(Expr::return_(
-                Some(P(Expr::literal(Literal::Int(42)))),
-            ))))
-        ], None)),
+        P(Expr::block(
+            thin_vec![P(Statement::expr(P(Expr::return_(Some(P(
+                Expr::literal(Literal::Int(42))
+            )),))))],
+            None,
+        )),
     ));
     assert_eq!(result.unwrap(), expected);
 }
@@ -372,13 +398,11 @@ fn test_parse_return_statement() {
         "Failed to parse return statement: {}",
         result.unwrap_err()
     );
-    let expected = P(Statement::expr(P(Expr::return_(
-        Some(P(Expr::binary(
-            BinaryOperator::Add,
-            P(Expr::path(None, Path::ident("x".to_string()))),
-            P(Expr::path(None, Path::ident("y".to_string()))),
-        ))),
-    ))));
+    let expected = P(Statement::expr(P(Expr::return_(Some(P(Expr::binary(
+        BinaryOperator::Add,
+        P(Expr::path(None, Path::ident("x".to_string()))),
+        P(Expr::path(None, Path::ident("y".to_string()))),
+    )))))));
     assert_eq!(result.unwrap(), expected);
 }
 
@@ -430,8 +454,8 @@ fn test_basic_effect() {
         "Failed to parse effect declaration: {}",
         result.unwrap_err()
     );
-    let expected = P(AstElem::program(thin_vec![
-        P(AstElem::item(P(Item::effect(
+    let expected = P(AstElem::program(thin_vec![P(AstElem::item(P(
+        Item::effect(
             "IO".to_string(),
             thin_vec![],
             None,
@@ -452,19 +476,17 @@ fn test_basic_effect() {
                     thin_vec![],
                     Function {
                         generic_params: thin_vec![],
-                        inputs: thin_vec![
-                            Param {
-                                name: "str".to_string(),
-                                ty: P(Ty::simple("String".to_string())),
-                            },
-                        ],
+                        inputs: thin_vec![Param {
+                            name: "str".to_string(),
+                            ty: P(Ty::simple("String".to_string())),
+                        },],
                         output: FnRetTy::default(),
                     },
                     thin_vec![],
                 )))),
             ],
-        )))),
-    ]));
+        )
+    ))),]));
     assert_eq!(result.unwrap(), expected);
 }
 
@@ -484,41 +506,46 @@ fn test_struct_decl() {
         "Failed to parse struct declaration: {}",
         result.unwrap_err()
     );
-    let expected = P(AstElem::program(thin_vec![
-        P(AstElem::item(P(Item::struct_(
+    let expected = P(AstElem::program(thin_vec![P(AstElem::item(P(
+        Item::struct_(
             "List".to_string(),
-            thin_vec![
-                GenericParam::simple("T".to_string()),
-            ],
+            thin_vec![GenericParam::simple("T".to_string()),],
             thin_vec![],
             thin_vec![
                 P(AstElem::item(P(Item::bind(
                     "head".to_string(),
-                    thin_vec![BindAttr { mutability: Mutability::Not, ref_kind: None }],
-                    Some(P(Ty::generic("Option".to_string(), thin_vec![P(Ty::simple("T".to_string()))]))),
+                    thin_vec![BindAttr {
+                        mutability: Mutability::Not,
+                        ref_kind: None
+                    }],
+                    Some(P(Ty::generic(
+                        "Option".to_string(),
+                        thin_vec![P(Ty::simple("T".to_string()))]
+                    ))),
                     None,
                 )))),
                 P(AstElem::item(P(Item::bind(
                     "tail".to_string(),
-                    thin_vec![BindAttr { mutability: Mutability::Not, ref_kind: None }],
-                    Some(
-                        P(Ty::generic(
-                            "Option".to_string(), 
-                            thin_vec![
-                                P(Ty::generic("Box".to_string(),
-                                    thin_vec![
-                                        P(Ty::generic("List".to_string(), thin_vec![P(Ty::simple("T".to_string()))]))
-                                    ]
-                                )), 
-                            ]
-                        ))
-                    ),
+                    thin_vec![BindAttr {
+                        mutability: Mutability::Not,
+                        ref_kind: None
+                    }],
+                    Some(P(Ty::generic(
+                        "Option".to_string(),
+                        thin_vec![P(Ty::generic(
+                            "Box".to_string(),
+                            thin_vec![P(Ty::generic(
+                                "List".to_string(),
+                                thin_vec![P(Ty::simple("T".to_string()))]
+                            ))]
+                        )),]
+                    ))),
                     None,
                 )))),
             ],
-        )))),
-    ]));
-    assert_eq!( result.unwrap(), expected);
+        )
+    ))),]));
+    assert_eq!(result.unwrap(), expected);
 }
 
 #[test]
@@ -534,8 +561,14 @@ fn test_parse_generic_type_annotation() {
     );
     let expected = P(AstElem::item(P(Item::bind(
         "x".to_string(),
-        thin_vec![BindAttr { mutability: Mutability::Not, ref_kind: None }],
-        Some(P(Ty::generic("Array".to_string(), thin_vec![P(Ty::simple("int".to_string()))]))),
+        thin_vec![BindAttr {
+            mutability: Mutability::Not,
+            ref_kind: None
+        }],
+        Some(P(Ty::generic(
+            "Array".to_string(),
+            thin_vec![P(Ty::simple("int".to_string()))],
+        ))),
         Some(P(Expr::array(thin_vec![
             P(Expr::literal(Literal::Int(1))),
             P(Expr::literal(Literal::Int(2))),
@@ -566,11 +599,20 @@ fn test_parse_nested_generic_type_annotation() {
     let result = parser.parse_declaration().unwrap();
     let expected = P(AstElem::item(P(Item::bind(
         "x".to_string(),
-        thin_vec![BindAttr { mutability: Mutability::Not, ref_kind: None }],
-        Some(P(Ty::generic("Map".to_string(), thin_vec![
-            P(Ty::simple("String".to_string())),
-            P(Ty::generic("Array".to_string(), thin_vec![P(Ty::simple("int".to_string()))]))
-        ]))),
+        thin_vec![BindAttr {
+            mutability: Mutability::Not,
+            ref_kind: None
+        }],
+        Some(P(Ty::generic(
+            "Map".to_string(),
+            thin_vec![
+                P(Ty::simple("String".to_string())),
+                P(Ty::generic(
+                    "Array".to_string(),
+                    thin_vec![P(Ty::simple("int".to_string()))]
+                ))
+            ],
+        ))),
         None,
     ))));
     assert_eq!(result, expected);
@@ -590,25 +632,23 @@ fn test_parse_function_with_generic_return_type() {
     let expected = P(AstElem::item(P(Item::fn_(
         "getValues".to_string(),
         thin_vec![],
-        Function { 
-            generic_params: thin_vec![], 
+        Function {
+            generic_params: thin_vec![],
             inputs: thin_vec![],
-            output: FnRetTy::Ty(
-                P(Ty::generic(
-                    "Array".to_string(),
-                     thin_vec![P(Ty::simple("int".to_string()))]))
-            ),
+            output: FnRetTy::Ty(P(Ty::generic(
+                "Array".to_string(),
+                thin_vec![P(Ty::simple("int".to_string()))],
+            ))),
         },
-        thin_vec![P(Statement::expr(P(Expr::return_(
-            Some(P(Expr::array(thin_vec![
+        thin_vec![P(Statement::expr(P(Expr::return_(Some(P(Expr::array(
+            thin_vec![
                 P(Expr::literal(Literal::Int(1))),
                 P(Expr::literal(Literal::Int(2))),
                 P(Expr::literal(Literal::Int(3))),
-            ]))),
-        ))))],
+            ]
+        ))),))))],
     ))));
     assert_eq!(result.unwrap(), expected);
-        
 }
 #[test]
 fn test_parse_error_handling() {
@@ -652,25 +692,24 @@ fn test_parse_multi_pipeline() {
         "Failed to parse pipeline: {}",
         result.unwrap_err()
     );
-    let expected = P(AstElem::program(thin_vec![
-        P(AstElem::expr(P(Expr::pipeline(
+    let expected = P(AstElem::program(thin_vec![P(AstElem::expr(P(
+        Expr::pipeline(
             P(AstElem::expr(P(Expr::pipeline(
-                P(AstElem::expr(P(Expr::pipeline(P(AstElem::item(
-                    P(Item::bind("processed".to_string(),
-                        thin_vec![
-                            BindAttr { mutability: Mutability::Not, ref_kind: None },
-                        ],
+                P(AstElem::expr(P(Expr::pipeline(
+                    P(AstElem::item(P(Item::bind(
+                        "processed".to_string(),
+                        thin_vec![BindAttr {
+                            mutability: Mutability::Not,
+                            ref_kind: None
+                        },],
                         None,
-                        Some(P(Expr::path(
-                            None,
-                            Path::ident("data".to_string())
-                        )))
+                        Some(P(Expr::path(None, Path::ident("data".to_string()))))
                     )))),
                     P(Expr::trailing_closure(
                         P(Expr::path(None, Path::ident("map".to_string()))),
                         thin_vec![P(Expr::path(None, Path::ident("x".to_string())))],
-                        P(Expr::block(thin_vec![
-                            P(Statement::expr(P(Expr::binary(
+                        P(Expr::block(
+                            thin_vec![P(Statement::expr(P(Expr::binary(
                                 BinaryOperator::Multiply,
                                 P(Expr::path(None, Path::ident("x".to_string()))),
                                 P(Expr::literal(Literal::Int(2))),
@@ -682,8 +721,8 @@ fn test_parse_multi_pipeline() {
                 P(Expr::trailing_closure(
                     P(Expr::path(None, Path::ident("filter".to_string()))),
                     thin_vec![P(Expr::path(None, Path::ident("x".to_string())))],
-                    P(Expr::block(thin_vec![
-                        P(Statement::expr(P(Expr::binary(
+                    P(Expr::block(
+                        thin_vec![P(Statement::expr(P(Expr::binary(
                             BinaryOperator::GreaterThan,
                             P(Expr::path(None, Path::ident("x".to_string()))),
                             P(Expr::literal(Literal::Int(0))),
@@ -696,16 +735,14 @@ fn test_parse_multi_pipeline() {
                 P(Expr::call(
                     P(Expr::path(None, Path::ident("fold".to_string()))),
                     None,
-                    thin_vec![
-                        P(Expr::literal(Literal::Int(0))),
-                    ],
+                    thin_vec![P(Expr::literal(Literal::Int(0))),],
                 )),
                 thin_vec![
                     P(Expr::path(None, Path::ident("acc".to_string()))),
                     P(Expr::path(None, Path::ident("x".to_string()))),
                 ],
-                P(Expr::block(thin_vec![
-                    P(Statement::expr(P(Expr::binary(
+                P(Expr::block(
+                    thin_vec![P(Statement::expr(P(Expr::binary(
                         BinaryOperator::Add,
                         P(Expr::path(None, Path::ident("acc".to_string()))),
                         P(Expr::path(None, Path::ident("x".to_string()))),
@@ -713,8 +750,8 @@ fn test_parse_multi_pipeline() {
                     None
                 )),
             )),
-        )))),
-    ]));
+        )
+    ))),]));
     assert_eq!(result.unwrap(), expected);
 }
 
@@ -735,8 +772,8 @@ fn test_simple_impl_block() {
         "Failed to parse impl block: {}",
         result.unwrap_err()
     );
-    let expected = P(AstElem::program(thin_vec![
-        P(AstElem::item(P(Item::impl_(
+    let expected = P(AstElem::program(thin_vec![P(AstElem::item(P(
+        Item::impl_(
             "Display".to_string(),
             thin_vec![],
             ImplKind::Infer,
@@ -744,29 +781,23 @@ fn test_simple_impl_block() {
             thin_vec![],
             None,
             thin_vec![],
-            thin_vec![
-                P(AstElem::item(P(Item::fn_(
-                    "display".to_string(),
-                    thin_vec![],
-                    Function {
-                        generic_params: thin_vec![],
-                        inputs: thin_vec![
-                            Param {
-                                name: "self".to_string(),
-                                ty: P(Ty::self_type()),
-                            },
-                        ],
-                        output: FnRetTy::Ty(P(Ty::simple("String".to_string()))),
-                    },
-                    thin_vec![
-                        P(Statement::expr(P(Expr::literal(
-                            Literal::String("Point({self.x}, {self.y})".to_string())
-                        ))))
-                    ],
-                )))),
-            ],
-        )))),
-    ]));
+            thin_vec![P(AstElem::item(P(Item::fn_(
+                "display".to_string(),
+                thin_vec![],
+                Function {
+                    generic_params: thin_vec![],
+                    inputs: thin_vec![Param {
+                        name: "self".to_string(),
+                        ty: P(Ty::self_type()),
+                    },],
+                    output: FnRetTy::Ty(P(Ty::simple("String".to_string()))),
+                },
+                thin_vec![P(Statement::expr(P(Expr::literal(Literal::String(
+                    "Point({self.x}, {self.y})".to_string()
+                )))))],
+            )))),],
+        )
+    ))),]));
     assert_eq!(result.unwrap(), expected);
 }
 
@@ -785,39 +816,30 @@ fn test_with_clause_simple() {
         "Failed to parse with clause: {}",
         result.unwrap_err()
     );
-    let expected = P(AstElem::program(thin_vec![
-        P(AstElem::item(P(Item::fn_(
-            "generate_id".to_string(),
+    let expected = P(AstElem::program(thin_vec![P(AstElem::item(P(Item::fn_(
+        "generate_id".to_string(),
+        thin_vec![FnAttr::with_clause(thin_vec![P(WithClauseItem::Generic(
+            GenericParam {
+                name: "Random".to_string(),
+                kind: GenericParamKind::Type(None),
+                attrs: thin_vec![],
+                bounds: None,
+                is_placeholder: false,
+            }
+        )),])],
+        Function {
+            generic_params: thin_vec![],
+            inputs: thin_vec![],
+            output: FnRetTy::Ty(P(Ty::simple("i32".to_string()))),
+        },
+        thin_vec![P(Statement::expr(P(Expr::call(
+            P(Expr::path(None, Path::ident("next_int".to_string()))),
+            None,
             thin_vec![
-                FnAttr::with_clause(
-                    thin_vec![
-                        P(WithClauseItem::Generic(GenericParam {
-                            name: "Random".to_string(),
-                            kind: GenericParamKind::Type(None),
-                            attrs: thin_vec![],
-                            bounds: None,
-                            is_placeholder: false,
-                        })),
-                    ]
-                )
+                P(Expr::literal(Literal::Int(0))),
+                P(Expr::literal(Literal::Int(1000))),
             ],
-            Function {
-                generic_params: thin_vec![],
-                inputs: thin_vec![],
-                output: FnRetTy::Ty(P(Ty::simple("i32".to_string()))),
-            },
-            thin_vec![
-                P(Statement::expr(P(Expr::call(
-                    P(Expr::path(None, Path::ident("next_int".to_string()))),
-                    None,
-                    thin_vec![
-                        P(Expr::literal(Literal::Int(0))),
-                        P(Expr::literal(Literal::Int(1000))),
-                    ],  
-                ))))
-            ],
-        )))),
-    ]));
+        ))))],
+    )))),]));
     assert_eq!(result.unwrap(), expected);
-
 }

@@ -1,6 +1,5 @@
 use std::fmt;
 
-
 /// Represents a token in Alloy.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
@@ -10,7 +9,7 @@ pub enum Token {
     Return,
     Fn,
     If,
-    
+
     Else,
     While,
     Loop,
@@ -18,7 +17,7 @@ pub enum Token {
     For,
     Match,
     Guard,
-    
+
     Mut,
     Async,
     Shared,
@@ -26,11 +25,11 @@ pub enum Token {
     In,
     With,
     Where,
-    
+
     Await,
-    
+
     Struct, // ? unsure if keeping
-    Enum, // ? unsure if keeping
+    Enum,   // ? unsure if keeping
     Union,
     Type,
     Effect,
@@ -87,7 +86,6 @@ pub enum Token {
     Arrow,
     Semicolon,
     Newline,
-    
 
     // Special
     Eof,
@@ -122,9 +120,9 @@ impl Token {
                 "shared" => &Token::Shared,
                 "default" => &Token::Default,
                 "effect" => &Token::Effect,
-                _ => self
+                _ => self,
             },
-            _ => self
+            _ => self,
         }
     }
 
@@ -164,7 +162,7 @@ impl Token {
 
     pub fn can_begin_expr(&self) -> bool {
         match self {
-            | Token::Identifier(_)
+            Token::Identifier(_)
             | Token::IntLiteral(_)
             | Token::FloatLiteral(_)
             | Token::StringLiteral(_)
@@ -176,12 +174,12 @@ impl Token {
             | Token::Minus
             | Token::Pipeline => true,
             _ => false,
-        }   
+        }
     }
 
     pub fn can_begin_pattern(&self) -> bool {
         match self {
-            | Token::Identifier(_)
+            Token::Identifier(_)
             | Token::IntLiteral(_)
             | Token::FloatLiteral(_)
             | Token::StringLiteral(_)
@@ -194,12 +192,12 @@ impl Token {
             | Token::Range
             | Token::Pipeline => true,
             _ => false,
-        }   
+        }
     }
 
     pub fn can_begin_type(&self) -> bool {
         match self {
-            | Token::Identifier(_)
+            Token::Identifier(_)
             | Token::LParen
             | Token::LBracket
             | Token::Not
@@ -209,7 +207,7 @@ impl Token {
             | Token::Pipe
             | Token::PathSep => true,
             _ => false,
-        }   
+        }
     }
 
     pub fn can_begin_item(&self) -> bool {
@@ -274,9 +272,8 @@ impl Token {
     }
 }
 
-
 impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {        
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Token::Let => f.write_str("let"),
             Token::Run => f.write_str("run"),

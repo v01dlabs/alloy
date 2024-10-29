@@ -9,7 +9,6 @@ use std::fmt;
 use std::iter::Peekable;
 use std::str::Chars;
 
-
 #[derive(Debug, Clone, Copy)]
 pub struct Location {
     pub line: usize,
@@ -299,11 +298,11 @@ impl<'a> Lexer<'a> {
                     } else {
                         Ok(Token::Colon)
                     }
-                },
+                }
                 ';' => Ok(Token::Semicolon),
                 '?' => Ok(Token::QuestionMark),
                 '\n' => Ok(Token::Newline),
-                
+
                 _ => Err(LexerError::UnexpectedChar(
                     c,
                     LexerError::to_miette_span(&self.loc()),
@@ -332,4 +331,3 @@ impl<'a> Lexer<'a> {
         Ok(tokens)
     }
 }
-

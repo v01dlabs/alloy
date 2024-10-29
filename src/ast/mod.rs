@@ -4,10 +4,8 @@ use std::{fmt, sync::Arc};
 
 use thin_vec::ThinVec;
 
-use crate::ast::ty::{
-        AttrItem, Const, GenericParam, Mutability, Path, QualifiedSelf
-    };
 use self::ty::{Function, Ident, Pattern, RefKind, Ty, TypeOp};
+use crate::ast::ty::{AttrItem, Const, GenericParam, Mutability, Path, QualifiedSelf};
 use crate::lexer::token::Token;
 
 #[allow(non_snake_case)]
@@ -77,7 +75,7 @@ impl fmt::Display for AstElem {
             AstElemKind::Statement(statement) => write!(f, "{statement}"),
         }
     }
-}   
+}
 
 impl AstElem {
     pub fn item(item: Box<Item>) -> Self {
@@ -85,7 +83,7 @@ impl AstElem {
         AstElem {
             id: 0,
             kind: AstElemKind::Item(item),
-            tokens
+            tokens,
         }
     }
     pub fn expr(expr: Box<Expr>) -> Self {
@@ -93,7 +91,7 @@ impl AstElem {
         AstElem {
             id: 0,
             kind: AstElemKind::Expr(expr),
-            tokens
+            tokens,
         }
     }
     pub fn statement(statement: Box<Statement>) -> Self {
@@ -254,8 +252,7 @@ impl fmt::Display for WhereClauseItem {
             WhereClauseItem::Algebraic(type_op) => write!(f, "{}", type_op),
         }
     }
-}   
-
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WithClauseItem {
@@ -263,14 +260,14 @@ pub enum WithClauseItem {
     Algebraic(TypeOp),
 }
 
-impl fmt::Display for WithClauseItem {        
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {        
+impl fmt::Display for WithClauseItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WithClauseItem::Generic(generic_param) => write!(f, "{}", generic_param),
             WithClauseItem::Algebraic(type_op) => write!(f, "{}", type_op),
         }
     }
-}   
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnAttr {
@@ -283,7 +280,6 @@ impl fmt::Display for FnAttr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_vec(f, &self.effects)
     }
-    
 }
 
 impl FnAttr {
@@ -301,7 +297,7 @@ pub enum Visibility {
     Local(Option<Path>),
     Public,
     Private,
-    CrateLevel
+    CrateLevel,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -342,7 +338,6 @@ impl fmt::Display for BindAttr {
             None => match self.mutability {
                 Mutability::Not => write!(f, ""),
                 Mutability::Mut => write!(f, "mut "),
-        
             },
             Some(RefKind::ThreadLocal(Mutability::Not)) => write!(f, "ref "),
             Some(RefKind::ThreadLocal(Mutability::Mut)) => write!(f, "mut ref "),
@@ -353,7 +348,7 @@ impl fmt::Display for BindAttr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Expr {    
+pub struct Expr {
     pub kind: ExprKind,
     pub tokens: Arc<ThinVec<Token>>,
 }
@@ -372,11 +367,15 @@ impl fmt::Display for Expr {
                 write!(f, "]")
             }
             ExprKind::ConstBlock(const_) => write!(f, "{const_}"),
-            ExprKind::Call { callee, generic_args, args } => {
+            ExprKind::Call {
+                callee,
+                generic_args,
+                args,
+            } => {
                 write!(f, "{callee}")?;
                 if let Some(generic_args) = generic_args {
                     write!(f, "[")?;
-                    for(i, ty) in generic_args.iter().enumerate() {
+                    for (i, ty) in generic_args.iter().enumerate() {
                         if i > 0 {
                             write!(f, ", ")?;
                         }
@@ -393,7 +392,11 @@ impl fmt::Display for Expr {
                 }
                 write!(f, ")")
             }
-            ExprKind::MethodCall { path_seg, receiver, args } => {
+            ExprKind::MethodCall {
+                path_seg,
+                receiver,
+                args,
+            } => {
                 write!(f, "{receiver}.{path_seg}")?;
                 write!(f, "(")?;
                 for (i, arg) in args.iter().enumerate() {
@@ -406,15 +409,12 @@ impl fmt::Display for Expr {
             }
             ExprKind::Binary { binop, lhs, rhs } => {
                 write!(f, "( {lhs} {binop} {rhs} )")
-            }   
-            ExprKind::Unary(unary_operator, expr) => {
-                match unary_operator {
-                    UnaryOperator::Negate => write!(f, "-{expr}"),
-                    UnaryOperator::Not => write!(f, "!{expr}"),
-                    UnaryOperator::Increment => write!(f, "{expr}++"),
-                    
-                }
             }
+            ExprKind::Unary(unary_operator, expr) => match unary_operator {
+                UnaryOperator::Negate => write!(f, "-{expr}"),
+                UnaryOperator::Not => write!(f, "!{expr}"),
+                UnaryOperator::Increment => write!(f, "{expr}++"),
+            },
             ExprKind::Cast(expr, ty) => {
                 write!(f, "{expr} as {ty}")
             }
@@ -445,11 +445,16 @@ impl fmt::Display for Expr {
                 }
                 Ok(())
             }
-            ExprKind::For { pat, iter, body, label } => {
-                write!(f, "for {pat} in {iter} {body}")?;   
+            ExprKind::For {
+                pat,
+                iter,
+                body,
+                label,
+            } => {
+                write!(f, "for {pat} in {iter} {body}")?;
                 if let Some(label) = label {
                     write!(f, " {label}")?;
-                }   
+                }
                 Ok(())
             }
             ExprKind::Loop { body, label } => {
@@ -464,9 +469,21 @@ impl fmt::Display for Expr {
             ExprKind::Await(expr) => todo!(),
             ExprKind::Assign { lhs, rhs } => todo!(),
             ExprKind::AssignOp { lhs, op, rhs } => todo!(),
-            ExprKind::Closure { callee, params, closure } => todo!(),
-            ExprKind::TrailingClosure { callee, args, closure } => todo!(),
-            ExprKind::Struct { qual_self, path, fields } => todo!(),
+            ExprKind::Closure {
+                callee,
+                params,
+                closure,
+            } => todo!(),
+            ExprKind::TrailingClosure {
+                callee,
+                args,
+                closure,
+            } => todo!(),
+            ExprKind::Struct {
+                qual_self,
+                path,
+                fields,
+            } => todo!(),
             ExprKind::PipelineOperation { prev, next } => todo!(),
             ExprKind::Field(expr, _) => todo!(),
             ExprKind::Index { expr, index } => todo!(),
@@ -485,19 +502,36 @@ impl fmt::Display for Expr {
 }
 
 impl Expr {
-
-    pub fn call(callee: Box<Expr>, generic_args: Option<ThinVec<Box<Ty>>>, args: ThinVec<Box<Expr>>) -> Self {
-        let tokens: ThinVec<Token> = callee.tokens.as_slice().iter()
-            .chain(args.iter().map(|arg| arg.tokens.as_slice()).flatten()).cloned().collect();
+    pub fn call(
+        callee: Box<Expr>,
+        generic_args: Option<ThinVec<Box<Ty>>>,
+        args: ThinVec<Box<Expr>>,
+    ) -> Self {
+        let tokens: ThinVec<Token> = callee
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(args.iter().map(|arg| arg.tokens.as_slice()).flatten())
+            .cloned()
+            .collect();
         Self {
-            kind: ExprKind::Call { callee, generic_args, args },
+            kind: ExprKind::Call {
+                callee,
+                generic_args,
+                args,
+            },
             tokens: Arc::new(tokens),
         }
     }
 
     pub fn path(path: Option<Box<QualifiedSelf>>, id: Path) -> Self {
-        let tokens: ThinVec<Token> = path.as_ref().map(|path| path.ty.tokens.as_slice()).unwrap_or_default()
-            .iter().cloned().collect();
+        let tokens: ThinVec<Token> = path
+            .as_ref()
+            .map(|path| path.ty.tokens.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::Path(path, id),
             tokens: Arc::new(tokens),
@@ -505,8 +539,7 @@ impl Expr {
     }
 
     pub fn field(expr: Box<Expr>, id: Ident) -> Self {
-        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter()
-            .cloned().collect();
+        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter().cloned().collect();
         Self {
             kind: ExprKind::Field(expr, id),
             tokens: Arc::new(tokens),
@@ -514,15 +547,24 @@ impl Expr {
     }
 
     pub fn method_call(path: String, receiver: Box<Expr>, args: ThinVec<Box<Expr>>) -> Self {
-        let tokens: ThinVec<Token> = receiver.tokens.as_slice().iter()
-            .chain(args.iter().map(|arg| arg.tokens.as_slice()).flatten()).cloned().collect();
+        let tokens: ThinVec<Token> = receiver
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(args.iter().map(|arg| arg.tokens.as_slice()).flatten())
+            .cloned()
+            .collect();
         Self {
-            kind: ExprKind::MethodCall { path_seg: path, receiver, args },
+            kind: ExprKind::MethodCall {
+                path_seg: path,
+                receiver,
+                args,
+            },
             tokens: Arc::new(tokens),
         }
     }
     pub fn unary(operator: UnaryOperator, operand: Box<Expr>) -> Self {
-        let tokens = operand.tokens.clone();    
+        let tokens = operand.tokens.clone();
         Self {
             kind: ExprKind::Unary(operator, operand),
             tokens,
@@ -530,8 +572,13 @@ impl Expr {
     }
 
     pub fn guard(condition: Box<Expr>, body: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = condition.tokens.as_slice().iter()
-            .chain(body.tokens.as_slice()).cloned().collect();
+        let tokens: ThinVec<Token> = condition
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(body.tokens.as_slice())
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::Guard { condition, body },
             tokens: Arc::new(tokens),
@@ -539,74 +586,129 @@ impl Expr {
     }
 
     pub fn literal(value: Literal) -> Self {
-        Self { kind: ExprKind::Literal(value), tokens: Arc::new(ThinVec::new()) }
+        Self {
+            kind: ExprKind::Literal(value),
+            tokens: Arc::new(ThinVec::new()),
+        }
     }
 
     pub fn binary(operator: BinaryOperator, left: Box<Expr>, right: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = left.tokens.as_slice().iter()
-            .chain(right.tokens.as_slice()).cloned().collect();
-        
+        let tokens: ThinVec<Token> = left
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(right.tokens.as_slice())
+            .cloned()
+            .collect();
+
         Self {
-            kind: ExprKind::Binary{ binop: operator, lhs: left, rhs: right },
+            kind: ExprKind::Binary {
+                binop: operator,
+                lhs: left,
+                rhs: right,
+            },
             tokens: Arc::new(tokens),
         }
     }
 
     pub fn cast(expr: Box<Expr>, ty: Box<Ty>) -> Self {
-        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter()
-            .chain(ty.tokens.as_slice()).cloned().collect();
+        let tokens: ThinVec<Token> = expr
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(ty.tokens.as_slice())
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::Cast(expr, ty),
             tokens: Arc::new(tokens),
         }
     }
     pub fn let_(pat: Box<Pattern>, ty: Option<Box<Expr>>, init: Option<Box<Expr>>) -> Self {
-        let tokens: ThinVec<Token> = pat.tokens.as_slice().iter()
-            .chain(ty.as_ref().map(|ty| ty.tokens.as_slice()).unwrap_or_default()).cloned().collect();
+        let tokens: ThinVec<Token> = pat
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(
+                ty.as_ref()
+                    .map(|ty| ty.tokens.as_slice())
+                    .unwrap_or_default(),
+            )
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::Let { pat, ty, init },
             tokens: Arc::new(tokens),
         }
     }
     pub fn type_(expr: Box<Expr>, ty: Box<Ty>) -> Self {
-        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter()
-            .chain(ty.tokens.as_slice()).cloned().collect();
+        let tokens: ThinVec<Token> = expr
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(ty.tokens.as_slice())
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::Type { expr, ty },
             tokens: Arc::new(tokens),
         }
     }
-    
+
     pub fn if_(cond: Box<Expr>, then: Box<Expr>, else_: Option<Box<Expr>>) -> Self {
-        let tokens: ThinVec<Token> = cond.tokens.as_slice().iter()
-            .chain(then.tokens.as_slice()).cloned().collect();
+        let tokens: ThinVec<Token> = cond
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(then.tokens.as_slice())
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::If { cond, then, else_ },
             tokens: Arc::new(tokens),
         }
     }
-    
+
     pub fn while_(cond: Box<Expr>, body: Box<Expr>, label: Option<String>) -> Self {
-        let tokens: ThinVec<Token> = cond.tokens.as_slice().iter()
-            .chain(body.tokens.as_slice()).cloned().collect();
+        let tokens: ThinVec<Token> = cond
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(body.tokens.as_slice())
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::While { cond, body, label },
             tokens: Arc::new(tokens),
         }
     }
 
-    pub fn for_(pat: Box<Pattern>, iter: Box<Expr>, body: Box<Expr>, label: Option<String>) -> Self {
-        let tokens: ThinVec<Token> = pat.tokens.as_slice().iter()
-            .chain(iter.tokens.as_slice()).cloned().collect();
+    pub fn for_(
+        pat: Box<Pattern>,
+        iter: Box<Expr>,
+        body: Box<Expr>,
+        label: Option<String>,
+    ) -> Self {
+        let tokens: ThinVec<Token> = pat
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(iter.tokens.as_slice())
+            .cloned()
+            .collect();
         Self {
-            kind: ExprKind::For { pat, iter, body, label },
+            kind: ExprKind::For {
+                pat,
+                iter,
+                body,
+                label,
+            },
             tokens: Arc::new(tokens),
         }
     }
 
     pub fn loop_(body: Box<Expr>, label: Option<String>) -> Self {
-        let tokens: ThinVec<Token> = body.tokens.as_slice().iter()
-            .cloned().collect();
+        let tokens: ThinVec<Token> = body.tokens.as_slice().iter().cloned().collect();
         Self {
             kind: ExprKind::Loop { body, label },
             tokens: Arc::new(tokens),
@@ -614,8 +716,13 @@ impl Expr {
     }
 
     pub fn match_(expr: Box<Expr>, arms: ThinVec<Arm>) -> Self {
-        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter()
-            .chain(arms.iter().map(|arm| arm.tokens.as_slice()).flatten()).cloned().collect();
+        let tokens: ThinVec<Token> = expr
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(arms.iter().map(|arm| arm.tokens.as_slice()).flatten())
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::Match { expr, arms },
             tokens: Arc::new(tokens),
@@ -623,8 +730,12 @@ impl Expr {
     }
 
     pub fn block(stmts: ThinVec<Box<Statement>>, label: Option<String>) -> Self {
-        let tokens: ThinVec<Token> = stmts.iter()
-            .map(|stmt| stmt.tokens.as_slice()).flatten().cloned().collect();
+        let tokens: ThinVec<Token> = stmts
+            .iter()
+            .map(|stmt| stmt.tokens.as_slice())
+            .flatten()
+            .cloned()
+            .collect();
         let stmts = stmts.into_iter().map(|s| *s).collect();
         Self {
             kind: ExprKind::Block(P(Block { stmts }), label),
@@ -632,17 +743,27 @@ impl Expr {
         }
     }
     pub fn assign(lhs: Box<Expr>, rhs: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = lhs.tokens.as_slice().iter()
-            .chain(rhs.tokens.as_slice()).cloned().collect();
+        let tokens: ThinVec<Token> = lhs
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(rhs.tokens.as_slice())
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::Assign { lhs, rhs },
             tokens: Arc::new(tokens),
         }
     }
-    
+
     pub fn assign_op(lhs: Box<Expr>, op: BinaryOperator, rhs: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = lhs.tokens.as_slice().iter()
-            .chain(rhs.tokens.as_slice()).cloned().collect();
+        let tokens: ThinVec<Token> = lhs
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(rhs.tokens.as_slice())
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::AssignOp { lhs, op, rhs },
             tokens: Arc::new(tokens),
@@ -650,19 +771,41 @@ impl Expr {
     }
 
     pub fn closure(callee: Box<Expr>, params: ThinVec<Box<Pattern>>, closure: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = callee.tokens.as_slice().iter()
-            .chain(params.iter().map(|param| param.tokens.as_slice()).flatten()).cloned().collect();
+        let tokens: ThinVec<Token> = callee
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(params.iter().map(|param| param.tokens.as_slice()).flatten())
+            .cloned()
+            .collect();
         Self {
-            kind: ExprKind::Closure { callee, params, closure },
+            kind: ExprKind::Closure {
+                callee,
+                params,
+                closure,
+            },
             tokens: Arc::new(tokens),
         }
     }
 
-    pub fn trailing_closure(callee: Box<Expr>, args: ThinVec<Box<Expr>>, closure: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = callee.tokens.as_slice().iter()
-            .chain(args.iter().map(|args| args.tokens.as_slice()).flatten()).cloned().collect();
+    pub fn trailing_closure(
+        callee: Box<Expr>,
+        args: ThinVec<Box<Expr>>,
+        closure: Box<Expr>,
+    ) -> Self {
+        let tokens: ThinVec<Token> = callee
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(args.iter().map(|args| args.tokens.as_slice()).flatten())
+            .cloned()
+            .collect();
         Self {
-            kind: ExprKind::TrailingClosure { callee, args, closure },
+            kind: ExprKind::TrailingClosure {
+                callee,
+                args,
+                closure,
+            },
             tokens: Arc::new(tokens),
         }
     }
@@ -670,32 +813,37 @@ impl Expr {
     pub fn return_(value: Option<Box<Expr>>) -> Self {
         let tokens: ThinVec<Token> = if let Some(ref value) = value {
             value.tokens.iter().cloned().collect()
-        } else { ThinVec::new() };
+        } else {
+            ThinVec::new()
+        };
         Self {
             kind: ExprKind::Return(value),
             tokens: Arc::new(tokens),
         }
     }
-    
+
     pub fn pipeline(prev: Box<AstElem>, next: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = prev.tokens.as_slice().iter()
-            .chain(next.tokens.as_slice()).cloned().collect();
+        let tokens: ThinVec<Token> = prev
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(next.tokens.as_slice())
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::PipelineOperation { prev, next },
             tokens: Arc::new(tokens),
         }
     }
     pub fn try_(expr: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter()
-            .cloned().collect();
+        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter().cloned().collect();
         Self {
             kind: ExprKind::Try(expr),
             tokens: Arc::new(tokens),
         }
     }
     pub fn bang(expr: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter()
-            .cloned().collect();
+        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter().cloned().collect();
         Self {
             kind: ExprKind::Unwrap(expr),
             tokens: Arc::new(tokens),
@@ -703,8 +851,7 @@ impl Expr {
     }
 
     pub fn run(expr: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter()
-            .cloned().collect();
+        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter().cloned().collect();
         Self {
             kind: ExprKind::Run(expr),
             tokens: Arc::new(tokens),
@@ -712,15 +859,17 @@ impl Expr {
     }
 
     pub fn array(elements: ThinVec<Box<Expr>>) -> Self {
-        let tokens: ThinVec<Token> = elements.iter()
-            .map(|elem| elem.tokens.as_slice()).flatten().cloned().collect();
+        let tokens: ThinVec<Token> = elements
+            .iter()
+            .map(|elem| elem.tokens.as_slice())
+            .flatten()
+            .cloned()
+            .collect();
         Self {
             kind: ExprKind::Array(elements),
             tokens: Arc::new(tokens),
         }
     }
-
-    
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -829,22 +978,23 @@ pub enum ExprKind {
         label: Option<String>,
         expr: Option<Box<Expr>>,
     },
-    Continue { label: Option<String>},
+    Continue {
+        label: Option<String>,
+    },
     Return(Option<Box<Expr>>),
-    Try(Box<Expr>), // expr?
+    Try(Box<Expr>),    // expr?
     Unwrap(Box<Expr>), // expr!
     Run(Box<Expr>),
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub stmts: ThinVec<Statement>,
-}       
+}
 
 impl fmt::Display for Block {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{")?;   
+        write!(f, "{{")?;
         for (i, statement) in self.stmts.iter().enumerate() {
             if i > 0 {
                 write!(f, ", ")?;
@@ -893,7 +1043,6 @@ pub enum LocalKind {
     InitElse(Box<Expr>, Box<Block>),
 }
 
-
 impl LocalKind {
     pub fn init(&self) -> Option<&Expr> {
         match self {
@@ -911,7 +1060,7 @@ impl LocalKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]  
+#[derive(Debug, Clone, PartialEq)]
 pub struct Statement {
     pub kind: StatementKind,
     pub tokens: Arc<ThinVec<Token>>,
@@ -931,45 +1080,51 @@ impl fmt::Display for Statement {
 
 impl Statement {
     pub fn let_(pat: Box<Pattern>, ty: Option<Box<Ty>>, init: Option<Box<Expr>>) -> Self {
-        let tokens: ThinVec<Token> = pat.tokens.as_slice().iter()
-            .chain(ty.as_ref().map(|ty| ty.tokens.as_slice()).unwrap_or_default()).cloned().collect();
-        let tokens =  Arc::new(tokens);
+        let tokens: ThinVec<Token> = pat
+            .tokens
+            .as_slice()
+            .iter()
+            .chain(
+                ty.as_ref()
+                    .map(|ty| ty.tokens.as_slice())
+                    .unwrap_or_default(),
+            )
+            .cloned()
+            .collect();
+        let tokens = Arc::new(tokens);
         let kind = if let Some(init) = init {
             LocalKind::Init(init)
         } else {
             LocalKind::Decl
         };
         Self {
-            kind: StatementKind::Let(Box::new(Local { 
-                pat, 
-                ty, 
-                kind, 
+            kind: StatementKind::Let(Box::new(Local {
+                pat,
+                ty,
+                kind,
                 attrs: ThinVec::new(),
-                tokens: tokens.clone()
+                tokens: tokens.clone(),
             })),
             tokens,
         }
     }
 
     pub fn binding(item: Box<Item>) -> Self {
-        let tokens: ThinVec<Token> = item.tokens.as_slice().iter()
-            .cloned().collect();
+        let tokens: ThinVec<Token> = item.tokens.as_slice().iter().cloned().collect();
         Self {
             kind: StatementKind::Item(item),
             tokens: Arc::new(tokens),
         }
     }
     pub fn item(item: Box<Item>) -> Self {
-        let tokens: ThinVec<Token> = item.tokens.as_slice().iter()
-            .cloned().collect();
+        let tokens: ThinVec<Token> = item.tokens.as_slice().iter().cloned().collect();
         Self {
             kind: StatementKind::Item(item),
             tokens: Arc::new(tokens),
         }
     }
     pub fn expr(expr: Box<Expr>) -> Self {
-        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter()
-            .cloned().collect();
+        let tokens: ThinVec<Token> = expr.tokens.as_slice().iter().cloned().collect();
         Self {
             kind: StatementKind::Expr(expr),
             tokens: Arc::new(tokens),
@@ -1010,7 +1165,12 @@ pub struct Item {
 impl fmt::Display for Item {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
-            ItemKind::Fn { name, attrs, function, body } => {
+            ItemKind::Fn {
+                name,
+                attrs,
+                function,
+                body,
+            } => {
                 write!(f, "fn {}", name)?;
                 write!(f, "(")?;
                 write_vec(f, &function.inputs)?;
@@ -1024,10 +1184,15 @@ impl fmt::Display for Item {
                 write_vec(f, body)?;
                 write!(f, "\n}}\n")
             }
-            ItemKind::Bind { name, attrs, type_annotation, initializer } => {
+            ItemKind::Bind {
+                name,
+                attrs,
+                type_annotation,
+                initializer,
+            } => {
                 write!(f, "let ")?;
                 write_vec(f, attrs)?;
-                write!(f, " {}", name)?; 
+                write!(f, " {}", name)?;
                 if let Some(type_annotation) = type_annotation {
                     write!(f, ": {}", type_annotation)?;
                 }
@@ -1036,13 +1201,19 @@ impl fmt::Display for Item {
                 }
                 Ok(())
             }
-            ItemKind::Effect { name, generic_params, bounds, where_clause, members } => {
+            ItemKind::Effect {
+                name,
+                generic_params,
+                bounds,
+                where_clause,
+                members,
+            } => {
                 write!(f, "effect {}", name)?;
                 write!(f, "[")?;
                 write_vec(f, generic_params)?;
                 write!(f, "]")?;
                 if let Some(bounds) = bounds {
-                    write!(f,": {}", bounds)?;
+                    write!(f, ": {}", bounds)?;
                 }
                 if !where_clause.is_empty() {
                     write!(f, "where\n")?;
@@ -1053,7 +1224,12 @@ impl fmt::Display for Item {
                 write_vec(f, members)?;
                 write!(f, "\n}}\n")
             }
-            ItemKind::Struct { name, generic_params, where_clause, members } => {
+            ItemKind::Struct {
+                name,
+                generic_params,
+                where_clause,
+                members,
+            } => {
                 write!(f, "struct {}", name)?;
                 write!(f, "[")?;
                 write_vec(f, generic_params)?;
@@ -1067,7 +1243,12 @@ impl fmt::Display for Item {
                 write_vec(f, members)?;
                 write!(f, "\n}}\n")
             }
-            ItemKind::Enum { name, generic_params, where_clause, variants } => {
+            ItemKind::Enum {
+                name,
+                generic_params,
+                where_clause,
+                variants,
+            } => {
                 write!(f, "enum {}", name)?;
                 write!(f, "[")?;
                 write_vec(f, generic_params)?;
@@ -1081,7 +1262,13 @@ impl fmt::Display for Item {
                 write_vec(f, variants)?;
                 write!(f, "\n}}\n")
             }
-            ItemKind::Trait { name, generic_params, bounds, where_clause, members } => {                
+            ItemKind::Trait {
+                name,
+                generic_params,
+                bounds,
+                where_clause,
+                members,
+            } => {
                 write!(f, "trait {}", name)?;
                 write!(f, "[")?;
                 write_vec(f, generic_params)?;
@@ -1093,12 +1280,17 @@ impl fmt::Display for Item {
                     write!(f, "where\n")?;
                     write_vec(f, where_clause)?;
                     write!(f, "\n")?;
-                }                
-                write!(f, "{{\n")?;                
+                }
+                write!(f, "{{\n")?;
                 write_vec(f, members)?;
                 write!(f, "\n}}\n")
             }
-            ItemKind::Union { name, generic_params, bounds, where_clause } => {
+            ItemKind::Union {
+                name,
+                generic_params,
+                bounds,
+                where_clause,
+            } => {
                 write!(f, "union {}", name)?;
                 write!(f, "[")?;
                 write_vec(f, generic_params)?;
@@ -1113,7 +1305,16 @@ impl fmt::Display for Item {
                 }
                 Ok(())
             }
-            ItemKind::Impl { name, generic_params, kind, target, target_generic_params, bounds, where_clause, members } => {
+            ItemKind::Impl {
+                name,
+                generic_params,
+                kind,
+                target,
+                target_generic_params,
+                bounds,
+                where_clause,
+                members,
+            } => {
                 write!(f, "impl {}", name)?;
                 write!(f, "[")?;
                 write_vec(f, generic_params)?;
@@ -1137,13 +1338,18 @@ impl fmt::Display for Item {
                 write!(f, "{{\n")?;
                 write_vec(f, members)?;
                 write!(f, "\n}}\n")
-            }   
+            }
         }
     }
 }
 
 impl Item {
-    pub fn fn_(name: Ident, attrs: ThinVec<FnAttr>, function: Function, body: ThinVec<Box<Statement>>) -> Self {
+    pub fn fn_(
+        name: Ident,
+        attrs: ThinVec<FnAttr>,
+        function: Function,
+        body: ThinVec<Box<Statement>>,
+    ) -> Self {
         Item {
             attrs: ThinVec::new(),
             vis: Visibility::Local(None),
@@ -1156,8 +1362,13 @@ impl Item {
             tokens: Arc::new(ThinVec::new()),
         }
     }
-    
-    pub fn bind(name: Ident, attrs: ThinVec<BindAttr>, type_annotation: Option<Box<Ty>>, initializer: Option<Box<Expr>>) -> Self {
+
+    pub fn bind(
+        name: Ident,
+        attrs: ThinVec<BindAttr>,
+        type_annotation: Option<Box<Ty>>,
+        initializer: Option<Box<Expr>>,
+    ) -> Self {
         Item {
             attrs: ThinVec::new(),
             vis: Visibility::Local(None),
@@ -1171,7 +1382,13 @@ impl Item {
         }
     }
 
-    pub fn effect(name: Ident, generic_params: ThinVec<GenericParam>, bounds: Option<TypeOp>, where_clause: ThinVec<Box<WhereClauseItem>>, members: ThinVec<Box<AstElem>>) -> Self {
+    pub fn effect(
+        name: Ident,
+        generic_params: ThinVec<GenericParam>,
+        bounds: Option<TypeOp>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
+        members: ThinVec<Box<AstElem>>,
+    ) -> Self {
         Item {
             attrs: ThinVec::new(),
             vis: Visibility::Local(None),
@@ -1186,7 +1403,12 @@ impl Item {
         }
     }
 
-    pub fn struct_(name: Ident, generic_params: ThinVec<GenericParam>, where_clause: ThinVec<Box<WhereClauseItem>>, members: ThinVec<Box<AstElem>>) -> Self {
+    pub fn struct_(
+        name: Ident,
+        generic_params: ThinVec<GenericParam>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
+        members: ThinVec<Box<AstElem>>,
+    ) -> Self {
         Item {
             attrs: ThinVec::new(),
             vis: Visibility::Local(None),
@@ -1200,7 +1422,12 @@ impl Item {
         }
     }
 
-    pub fn enum_(name: Ident, generic_params: ThinVec<GenericParam>, where_clause: ThinVec<Box<WhereClauseItem>>, variants: ThinVec<Box<AstElem>>) -> Self {
+    pub fn enum_(
+        name: Ident,
+        generic_params: ThinVec<GenericParam>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
+        variants: ThinVec<Box<AstElem>>,
+    ) -> Self {
         Item {
             attrs: ThinVec::new(),
             vis: Visibility::Local(None),
@@ -1214,7 +1441,13 @@ impl Item {
         }
     }
 
-    pub fn trait_(name: Ident, generic_params: ThinVec<GenericParam>, bounds: Option<TypeOp>, where_clause: ThinVec<Box<WhereClauseItem>>, members: ThinVec<Box<AstElem>>) -> Self {
+    pub fn trait_(
+        name: Ident,
+        generic_params: ThinVec<GenericParam>,
+        bounds: Option<TypeOp>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
+        members: ThinVec<Box<AstElem>>,
+    ) -> Self {
         Item {
             attrs: ThinVec::new(),
             vis: Visibility::Local(None),
@@ -1229,7 +1462,12 @@ impl Item {
         }
     }
 
-    pub fn union_(name: Ident, generic_params: ThinVec<GenericParam>, bounds: Option<TypeOp>, where_clause: ThinVec<Box<WhereClauseItem>>) -> Self {
+    pub fn union_(
+        name: Ident,
+        generic_params: ThinVec<GenericParam>,
+        bounds: Option<TypeOp>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
+    ) -> Self {
         Item {
             attrs: ThinVec::new(),
             vis: Visibility::Local(None),
@@ -1242,8 +1480,17 @@ impl Item {
             tokens: Arc::new(ThinVec::new()),
         }
     }
-    
-    pub fn impl_(name: Ident, generic_params: ThinVec<GenericParam>, kind: ImplKind, target: Ident, target_generic_params: ThinVec<GenericParam>, bounds: Option<TypeOp>, where_clause: ThinVec<Box<WhereClauseItem>>, members: ThinVec<Box<AstElem>>) -> Self {
+
+    pub fn impl_(
+        name: Ident,
+        generic_params: ThinVec<GenericParam>,
+        kind: ImplKind,
+        target: Ident,
+        target_generic_params: ThinVec<GenericParam>,
+        bounds: Option<TypeOp>,
+        where_clause: ThinVec<Box<WhereClauseItem>>,
+        members: ThinVec<Box<AstElem>>,
+    ) -> Self {
         Item {
             attrs: ThinVec::new(),
             vis: Visibility::Local(None),
@@ -1281,26 +1528,26 @@ pub enum ItemKind {
         generic_params: ThinVec<GenericParam>,
         bounds: Option<TypeOp>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        members: ThinVec<Box<AstElem>>, 
+        members: ThinVec<Box<AstElem>>,
     },
     Struct {
         name: Ident,
         generic_params: ThinVec<GenericParam>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        members: ThinVec<Box<AstElem>>, 
+        members: ThinVec<Box<AstElem>>,
     },
     Enum {
         name: Ident,
         generic_params: ThinVec<GenericParam>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        variants: ThinVec<Box<AstElem>>, 
+        variants: ThinVec<Box<AstElem>>,
     },
     Trait {
         name: Ident,
         generic_params: ThinVec<GenericParam>,
         bounds: Option<TypeOp>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        members: ThinVec<Box<AstElem>>, 
+        members: ThinVec<Box<AstElem>>,
     },
     Union {
         name: Ident,
@@ -1316,10 +1563,9 @@ pub enum ItemKind {
         target_generic_params: ThinVec<GenericParam>,
         bounds: Option<TypeOp>,
         where_clause: ThinVec<Box<WhereClauseItem>>,
-        members: ThinVec<Box<AstElem>>, 
+        members: ThinVec<Box<AstElem>>,
     },
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arm {
@@ -1466,4 +1712,3 @@ impl fmt::Display for Literal {
         }
     }
 }
-

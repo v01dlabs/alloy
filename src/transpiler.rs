@@ -46,11 +46,11 @@ impl Transpiler {
 
     fn transpile_item(&mut self, item: &Item) -> String {
         match &item.kind {
-            ItemKind::Bind { 
-                name, 
-                attrs, 
-                type_annotation, 
-                initializer 
+            ItemKind::Bind {
+                name,
+                attrs,
+                type_annotation,
+                initializer
             } => self.transpile_variable_declaration(
                 name.as_str(),
                 attrs
@@ -69,20 +69,20 @@ impl Transpiler {
                 &function.output.to_type(),
                 &AstElem::expr(P(Expr::block(body.clone(), None))),
             ),
-            ItemKind::Effect { 
-                name, 
+            ItemKind::Effect {
+                name,
                 generic_params,
-                 bounds, 
-                 where_clause, 
+                 bounds,
+                 where_clause,
                  members
             } => todo!(),
-            ItemKind::Struct { 
+            ItemKind::Struct {
                 name,
                 generic_params,
                 where_clause,
                 members,
             } => todo!(),
-            ItemKind::Enum { 
+            ItemKind::Enum {
                 name,
                 generic_params,
                 where_clause,
@@ -101,7 +101,7 @@ impl Transpiler {
                 bounds,
                 where_clause,
             } => todo!(),
-            ItemKind::Impl { 
+            ItemKind::Impl {
                 name,
                 generic_params,
                 kind,
@@ -117,59 +117,59 @@ impl Transpiler {
         match &expr.kind {
             ExprKind::Array(elements) => self.transpile_array_literal(&elements),
             ExprKind::ConstBlock(_) => todo!(),
-            ExprKind::Call { 
-                callee, 
-                generic_args, 
+            ExprKind::Call {
+                callee,
+                generic_args,
                 args } => self.transpile_function_call(
                 callee,
                 &args.iter().map(|arg|&**arg).collect::<Vec<_>>()[..],
             ),
             ExprKind::MethodCall { path_seg, receiver, args } => todo!(),
-            ExprKind::Binary { 
-                binop, 
-                lhs, 
-                rhs 
-            } => self.transpile_binary_op(lhs, binop, rhs),
+            ExprKind::Binary {
+                binop,
+                lhs,
+                rhs
+            } => self.transpile_binary_op(binop, lhs, rhs),
             ExprKind::Unary(unary_operator, operand) => {
                 self.transpile_unary_op(unary_operator, operand)
             }
             ExprKind::Cast(expr, ty) => todo!(),
             ExprKind::Literal(literal) => literal.to_string(),
-            ExprKind::Let { 
-                pat, 
-                ty, 
-                init 
+            ExprKind::Let {
+                pat,
+                ty,
+                init
             } => {
                 let pat_str = self.transpile_pattern(pat);
                 let ty_str = ty.as_ref()
                     .map_or(
-                        String::new(), 
+                        String::new(),
                     |ty| format!(": {}", self.transpile_expr(ty)
                 ));
                 let init_str = init.as_ref()
                 .map_or(
-                    String::new(), 
+                    String::new(),
                     |init| self.transpile_expr(init)
                 );
                 format!("{}{}{};", pat_str, ty_str, init_str)
             },
             ExprKind::Type { expr, ty } => todo!(),
             ExprKind::Guard { condition, body } => todo!(),
-            ExprKind::If { 
-                cond, 
-                then, 
+            ExprKind::If {
+                cond,
+                then,
                 else_
              } => self.transpile_if(cond, then, else_),
             ExprKind::While { cond, body, label } => self.transpile_while(cond, body),
-            ExprKind::For { 
-                pat, 
-                iter, 
-                body, 
+            ExprKind::For {
+                pat,
+                iter,
+                body,
                 label
              } => self.transpile_for(
                 &Some(P(*pat.clone())),
                 &Some(P(*iter.clone())),
-                &None, 
+                &None,
                 body),
             ExprKind::Loop { body, label } => todo!(),
             ExprKind::Match { expr, arms } => todo!(),
@@ -211,7 +211,7 @@ impl Transpiler {
             StatementKind::Let(local) => local.to_string(),
             StatementKind::Item(item) => self.transpile_item(item),
             StatementKind::Expr(expr) => self.transpile_expr(expr),
-            StatementKind::Semicolon(expr) => self.transpile_expr(expr),    
+            StatementKind::Semicolon(expr) => self.transpile_expr(expr),
             StatementKind::Empty => String::new(),
         }
     }
@@ -366,10 +366,12 @@ impl Transpiler {
     /// Transpiles a binary operation.
     fn transpile_binary_op(
         &mut self,
-        left: &Expr,
         operator: &BinaryOperator,
+        left: &Expr,
         right: &Expr,
     ) -> String {
+        let left_str = &self.transpile_expr(left);
+        let right_str = &self.transpile_expr(right);
         let op_str = match operator {
             BinaryOperator::Add => "+",
             BinaryOperator::Subtract => "-",
@@ -383,17 +385,11 @@ impl Transpiler {
             BinaryOperator::GreaterThanOrEqual => ">=",
             BinaryOperator::And => "&&",
             BinaryOperator::Or => "||",
-            BinaryOperator::Modulo => todo!(),
-            BinaryOperator::Assign => todo!(),
-            BinaryOperator::Pipeline => todo!(),
+            BinaryOperator::Assign => "=",
+            BinaryOperator::Pipeline => "|>",
+            BinaryOperator::Modulo => "%",
         };
-
-        format!(
-            "({} {} {})",
-            self.transpile_expr(left),
-            op_str,
-            self.transpile_expr(right)
-        )
+        format!("({} {} {})", left_str, op_str, right_str)
     }
 
     /// Transpiles a unary operation.

@@ -1,6 +1,6 @@
 use alloy::{
     error::LexerError,
-    lexer::{Lexer, token::Token},
+    lexer::{token::Token, Lexer},
 };
 
 #[test]

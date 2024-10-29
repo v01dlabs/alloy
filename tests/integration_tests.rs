@@ -48,7 +48,6 @@ fn test_parse_complex_program() {
         "Failed to parse complex program: {}",
         result.unwrap_err()
     );
-    
 }
 
 #[test]

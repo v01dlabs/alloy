@@ -3,13 +3,10 @@ use std::{fmt, sync::Arc};
 use thin_vec::{thin_vec, ThinVec};
 
 use crate::{
-    ast::{
-        AstElem, BindAttr,
-    }, 
-    lexer::token::Token, 
-    type_checker::Type}
-;
-
+    ast::{AstElem, BindAttr},
+    lexer::token::Token,
+    type_checker::Type,
+};
 
 pub type Ident = String;
 
@@ -79,7 +76,11 @@ impl Ty {
         }
     }
 
-    pub fn fn_(inputs: ThinVec<Param>, output: FnRetTy, generic_params: ThinVec<GenericParam>) -> Self {
+    pub fn fn_(
+        inputs: ThinVec<Param>,
+        output: FnRetTy,
+        generic_params: ThinVec<GenericParam>,
+    ) -> Self {
         Ty {
             kind: TyKind::Function(Function {
                 generic_params,
@@ -104,7 +105,7 @@ impl Ty {
         }
     }
 
-    pub fn self_type() -> Self {        
+    pub fn self_type() -> Self {
         Ty {
             kind: TyKind::SelfType,
             tokens: Arc::new(ThinVec::new()),
@@ -146,7 +147,7 @@ impl fmt::Display for Const {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
-}   
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
@@ -164,9 +165,8 @@ impl fmt::Display for Function {
             }
             write!(f, "{param}")?;
         }
-        write!(f, ") -> {}", self.output)   
+        write!(f, ") -> {}", self.output)
     }
-    
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -247,7 +247,7 @@ impl fmt::Display for FnRetTy {
             FnRetTy::Ty(ty) => write!(f, "{ty}"),
         }
     }
-}   
+}
 
 impl FnRetTy {
     pub fn to_type(&self) -> Option<Type> {
@@ -276,7 +276,7 @@ impl fmt::Display for AttrItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.path)
     }
-}   
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeOp {
@@ -346,7 +346,7 @@ impl Pattern {
             kind: PatternKind::Ident(BindAttr::new(false, None), ident, None),
             tokens: Arc::new(ThinVec::new()),
         }
-    }   
+    }
 }
 
 impl Pattern {
@@ -425,7 +425,7 @@ impl fmt::Display for Pattern {
                     write!(f, "{pattern}")?;
                 }
                 write!(f, ")")
-            },
+            }
             PatternKind::TypeOp(type_op, pattern) => {
                 write!(f, "{type_op} {pattern}")
             }
@@ -517,7 +517,6 @@ impl fmt::Display for Mutability {
             Mutability::Mut => write!(f, "mut "),
         }
     }
-    
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -543,7 +542,12 @@ impl Path {
     }
 
     pub fn concat(a: Path, b: Path) -> Path {
-        Path::new(a.segments.into_iter().chain(b.segments.into_iter()).collect())
+        Path::new(
+            a.segments
+                .into_iter()
+                .chain(b.segments.into_iter())
+                .collect(),
+        )
     }
 }
 
@@ -582,7 +586,6 @@ pub enum IntKind {
     I128,
     Isize,
     Int,
-    
 }
 
 #[derive(Debug, Clone, PartialEq)]
