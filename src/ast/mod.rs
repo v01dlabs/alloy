@@ -473,37 +473,102 @@ impl fmt::Display for Expr {
             }
             ExprKind::Do(expr) => write!(f, "do {}", expr),
             ExprKind::Block(block, _) => write!(f, "{block}"),
-            ExprKind::Await(expr) => todo!(),
-            ExprKind::Assign { lhs, rhs } => todo!(),
-            ExprKind::AssignOp { lhs, op, rhs } => todo!(),
+            ExprKind::Await(expr) => write!(f, "{expr}.await"),
+            ExprKind::Assign { lhs, rhs } => write!(f, "{lhs} = {rhs}"),
+            ExprKind::AssignOp { lhs, op, rhs } => write!(f, "( {lhs} {op}= {rhs} )"),
             ExprKind::Closure {
                 callee,
                 params,
                 closure,
-            } => todo!(),
+            } => {
+                write!(f, "{callee}(")?;
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{param}")?;
+                }
+                write!(f, ") {closure}")
+            }
             ExprKind::TrailingClosure {
                 callee,
                 args,
                 closure,
-            } => todo!(),
+            } => {
+                write!(f, "{callee}(")?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ") {closure}")
+            }
             ExprKind::Struct {
                 qual_self,
                 path,
                 fields,
-            } => todo!(),
-            ExprKind::PipelineOperation { prev, next } => todo!(),
-            ExprKind::Field(expr, _) => todo!(),
-            ExprKind::Index { expr, index } => todo!(),
-            ExprKind::Range { start, end, limits } => todo!(),
-            ExprKind::Underscore => todo!(),
-            ExprKind::Paren(expr) => todo!(),
-            ExprKind::Path(qualified_self, path) => todo!(),
-            ExprKind::Break { label, expr } => todo!(),
-            ExprKind::Continue { label } => todo!(),
-            ExprKind::Return(expr) => todo!(),
-            ExprKind::Try(expr) => todo!(),
-            ExprKind::Unwrap(expr) => todo!(),
-            ExprKind::Run(expr) => todo!(),
+            } => {
+                if let Some(qual_self) = qual_self {
+                    write!(f, "{qual_self}::")?;
+                }
+                write!(f, "{path} {{")?;
+                for (i, field) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{field}")?;
+                }
+                write!(f, "}}")
+            }
+            ExprKind::PipelineOperation { prev, next } => {
+                write!(f, "{prev} |> {next}")
+            }
+            ExprKind::Field(expr, ident) => {
+                write!(f, "{expr}.{ident}")
+            }
+            ExprKind::Index { expr, index } => {
+                write!(f, "{expr}[{index}]")
+            }
+            ExprKind::Range { start, end, limits } => match limits {
+                RangeLimits::HalfOpen => write!(f, "{start}..{end}"),
+                RangeLimits::Closed => write!(f, "{start}..={end}"),
+            },
+            ExprKind::Underscore => write!(f, "_"),
+            ExprKind::Paren(expr) => write!(f, "({expr})"),
+            ExprKind::Path(qualified_self, path) => {
+                if let Some(qualified_self) = qualified_self {
+                    write!(f, "{qualified_self}::")?;
+                }
+                write!(f, "{path}")
+            }
+            ExprKind::Break { label, expr } => {
+                write!(f, "break")?;
+                if let Some(label) = label {
+                    write!(f, " {label}")?;
+                }
+                if let Some(expr) = expr {
+                    write!(f, " {expr}")?;
+                }
+                Ok(())
+            }
+            ExprKind::Continue { label } => {
+                write!(f, "continue")?;
+                if let Some(label) = label {
+                    write!(f, " {label}")?;
+                }
+                Ok(())
+            }
+            ExprKind::Return(expr) => {
+                write!(f, "return")?;
+                if let Some(expr) = expr {
+                    write!(f, " {expr}")?;
+                }
+                Ok(())
+            }
+            ExprKind::Try(expr) => write!(f, "{expr}?"),
+            ExprKind::Unwrap(expr) => write!(f, "{expr}!"),
+            ExprKind::Run(expr) => write!(f, "run {expr}"),
         }
     }
 }
@@ -1691,6 +1756,12 @@ pub struct ExprField {
     pub expr: Box<Expr>,
     pub is_shorthand: bool,
     pub is_placeholder: bool,
+}
+
+impl fmt::Display for ExprField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.ident, self.expr)
+    }
 }
 
 /// Limit types of a range (inclusive or exclusive).

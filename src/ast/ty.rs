@@ -5,7 +5,7 @@ use thin_vec::{thin_vec, ThinVec};
 use crate::{
     ast::{AstElem, BindAttr},
     lexer::token::Token,
-    type_checker::Type,
+    type_checker::{self, Type},
 };
 
 pub type Ident = String;
@@ -253,7 +253,7 @@ impl FnRetTy {
     pub fn to_type(&self) -> Option<Type> {
         match self {
             FnRetTy::Infer => None,
-            FnRetTy::Ty(ty) => Some(Type::from(*ty.clone())),
+            FnRetTy::Ty(ty) => Some(Type::from(type_checker::Type::Algebraic(*ty.clone()))),
         }
     }
 }
@@ -429,9 +429,9 @@ impl fmt::Display for Pattern {
             PatternKind::TypeOp(type_op, pattern) => {
                 write!(f, "{type_op} {pattern}")
             }
-            PatternKind::Paren(pattern) => todo!(),
-            PatternKind::Never => todo!(),
-            PatternKind::Err => todo!(),
+            PatternKind::Paren(pattern) => write!(f, "({pattern})"),
+            PatternKind::Never => write!(f, "!"),
+            PatternKind::Err => write!(f, "err"),
         }
     }
 }
